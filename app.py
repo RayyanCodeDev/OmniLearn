@@ -94,7 +94,6 @@ with tab3:
         for concept in res.get("key_concepts", []):
             st.info(concept)
             
-        st.info("💡 (Huzaifa: Add your visual graph library here using these key concepts!)")
 
 # --- TAB 4: GAP ANALYSIS & QUIZ ---
 with tab4:
