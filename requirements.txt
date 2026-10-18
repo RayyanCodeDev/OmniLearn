@@ -1,0 +1,7 @@
+streamlit
+google-generativeai
+keyboard
+pyautogui
+chromadb
+pillow
+pandas
