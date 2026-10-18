@@ -3,13 +3,18 @@ import streamlit as st
 # 1. Page config MUST be the first Streamlit command
 st.set_page_config(page_title="OmniLearn", page_icon="🧠", layout="wide")
 
-# 2. Hide the default Streamlit branding (Fork button, menu, footer)
+# 2. Hide ALL default Streamlit branding (including the new bottom-right badge)
 hide_st_style = """
             <style>
             #MainMenu {visibility: hidden;}
             footer {visibility: hidden;}
             header {visibility: hidden;}
-            .stDeployButton {display:none;}
+            .stDeployButton {display: none;}
+            
+            /* This kills the new bottom-right badge */
+            div[data-testid="stStatusWidget"] {visibility: hidden;}
+            .stActionButton {visibility: hidden;}
+            .viewerBadge_container__1QSob {display: none;}
             </style>
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
