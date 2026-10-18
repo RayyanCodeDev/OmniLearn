@@ -11,7 +11,7 @@ genai.configure(api_key=api_key)
 
 def analyze_image(image_path):
     img = PIL.Image.open(image_path)
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('gemini-2.5-flash')
     
     prompt = """
     Analyze this screenshot of a student's study material. 
