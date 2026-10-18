@@ -6,15 +6,27 @@ from PIL import Image
 
 st.set_page_config(page_title="OmniLearn", page_icon="🧠", layout="wide")
 
+# --- STORAGE: PRESERVE DATA DURING TAB SWITCHING ---
+if "courses" not in st.session_state:
+    st.session_state.courses = []
+if "notes" not in st.session_state:
+    st.session_state.notes = []
+if "analysis_result" not in st.session_state:
+    st.session_state.analysis_result = None
+
 # --- HIDE STREAMLIT BRANDING ---
 hide_st_style = """
-            <style>
-            #MainMenu {visibility: hidden;}
-            header {visibility: hidden;}
-            [data-testid="stToolbar"] {visibility: hidden;}
-            [data-testid="stStatusWidget"] {visibility: hidden;}
-            </style>
-            """
+<style>
+#MainMenu {visibility: hidden;}
+header {visibility: hidden;}
+[data-testid="stToolbar"] {visibility: hidden;}
+.stAppToolbar {display: none;}
+[data-testid="stStatusWidget"] {visibility: hidden;}
+[data-testid="stDecoration"] {display: none;}
+.viewerBadge_container__1QSob {display: none;}
+.stActionButton {visibility: hidden;}
+</style>
+"""
 st.markdown(hide_st_style, unsafe_allow_html=True)
 
 st.title("🧠 OmniLearn")
@@ -23,24 +35,35 @@ st.subheader("Your AI-Powered Study Engine")
 # --- NAVIGATION TABS ---
 tab1, tab2, tab3, tab4 = st.tabs([
     "🏠 Home",
-    "📚 Capture Feed",
+    "📸 Capture Feed",
     "📝 Knowledge Graph",
     "⚙️ Gap Analysis & Quiz"
 ])
 
+# --- TAB 1: HOME ---
 with tab1:
-    st.header("Welcome to OmniLearn")
-    st.write("OmniLearn passively captures your study materials, organizes them using AI, and tests you on what you don't know.")
-    st.info("Go to the **Capture Feed** tab to upload a screenshot and see the magic!")
+    st.header("My Courses")
+    new_course = st.text_input("Enter a course or subject", key="new_course_input")
 
+    if st.button("Add Course"):
+        if new_course.strip():
+            st.session_state.courses.append(new_course.strip())
+            st.rerun()
+
+    if st.session_state.courses:
+        for i, course in enumerate(st.session_state.courses):
+            st.write(f"📚 {course}")
+    else:
+        st.info("Your subjects and courses will appear here.")
+
+# --- TAB 2: CAPTURE FEED (AI INTEGRATION) ---
 with tab2:
     st.header("📸 Capture Feed")
-    st.write("Upload a screenshot of a lecture slide or WhatsApp message, and our AI will extract the concepts.")
-    
-    uploaded_file = st.file_uploader("Drag and drop a screenshot here (PNG, JPG)", type=["png", "jpg", "jpeg"])
+    st.write("Upload a screenshot of a lecture slide or WhatsApp message.")
+
+    uploaded_file = st.file_uploader("Drag and drop a screenshot (PNG, JPG)", type=["png", "jpg", "jpeg"])
 
     if uploaded_file is not None:
-        # Save the uploaded file temporarily
         temp_path = "data/test_screenshots/temp_upload.png"
         os.makedirs("data/test_screenshots", exist_ok=True)
         with open(temp_path, "wb") as f:
@@ -54,26 +77,34 @@ with tab2:
         if "error" in result:
             st.error("Could not analyze the image.")
         else:
-            st.success("Analysis Complete!")
-            st.write(f"**Subject:** {result.get('subject', 'Unknown')}")
-            st.write(f"**Topic:** {result.get('topic', 'Unknown')}")
-            st.write(f"**Summary:** {result.get('summary', '')}")
-            st.write("**Key Concepts:**")
-            for concept in result.get("key_concepts", []):
-                st.info(concept)
+            st.session_state.analysis_result = result
+            st.success("Analysis Complete! Click on Tab 3 to see the Knowledge Graph.")
 
+# --- TAB 3: KNOWLEDGE GRAPH ---
 with tab3:
     st.header("📝 Your Knowledge Graph")
-    st.write("This is where the visual map of your learning will go.")
-    
-    # Quick check of local folder (for the hotkey script)
-    SAVE_DIR = "data/test_screenshots"
-    images = glob.glob(os.path.join(SAVE_DIR, "*.png"))
-    st.write(f"**Total Screenshots in local database:** {len(images)}")
-    st.info("Visual graph integration coming soon!")
+    if st.session_state.analysis_result is None:
+        st.warning("Please upload a screenshot in Tab 2 first.")
+    else:
+        res = st.session_state.analysis_result
+        st.success(f"**Subject:** {res.get('subject')} | **Topic:** {res.get('topic')}")
+        st.write(f"**Summary:** {res.get('summary')}")
+        
+        st.write("### Key Concepts Detected")
+        for concept in res.get("key_concepts", []):
+            st.info(concept)
+            
+        st.info("💡 (Huzaifa: Add your visual graph library here using these key concepts!)")
 
+# --- TAB 4: GAP ANALYSIS & QUIZ ---
 with tab4:
     st.header("⚙️ Gap Analysis & Quiz")
-    st.write("The AI will compare your notes to the syllabus and find what you are missing.")
-    if st.button("Generate Quiz"):
-        st.success("Quiz generation logic coming soon!")
+    if st.session_state.analysis_result is None:
+        st.warning("Please upload a screenshot in Tab 2 first.")
+    else:
+        res = st.session_state.analysis_result
+        st.write(f"Let's test your knowledge on **{res.get('topic')}**.")
+        if st.button("Generate Quiz Question"):
+            st.info(f"**Question:** Explain the concept of {res.get('key_concepts')[0]} in your own words.")
+            st.text_area("Your Answer")
+            st.button("Submit Answer")
