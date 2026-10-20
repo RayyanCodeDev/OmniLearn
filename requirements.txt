@@ -1,7 +1,6 @@
 streamlit
 google-generativeai
-keyboard
 pyautogui
-chromadb
+keyboard
 pillow
-pandas
+python-dotenv
