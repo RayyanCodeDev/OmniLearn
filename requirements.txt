@@ -4,3 +4,4 @@ pyautogui
 keyboard
 pillow
 python-dotenv
+streamlit-agraph
