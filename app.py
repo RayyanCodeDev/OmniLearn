@@ -3,6 +3,7 @@ import os
 import glob
 from backend.ai_pipeline import analyze_image, grade_answer, chat_with_notes
 from PIL import Image
+from streamlit_agraph import agraph, Node, Edge, Config
 
 st.set_page_config(page_title="OmniLearn", page_icon="🧠", layout="wide")
 
@@ -25,7 +26,7 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 
 with tab1:
     st.header("Welcome to OmniLearn")
-    st.write("Upload a screenshot to instantly generate notes, flashcards, and quizzes.")
+    st.write("Upload a screenshot to instantly generate notes, flashcards, quizzes, and chat with your notes.")
 
 with tab2:
     st.header("📸 Capture Feed")
@@ -56,17 +57,39 @@ with tab3:
         res = st.session_state.analysis_result
         st.success(f"**Subject:** {res.get('subject')} | **Topic:** {res.get('topic')}")
         
-        # FEATURE 5: Detailed Notes
+        # Detailed Notes
         with st.expander("📖 View Detailed Study Notes", expanded=True):
             st.write(res.get('detailed_notes', 'No detailed notes generated.'))
             
-        # FEATURE 4: Visual Graph Placeholder (Huzaifa will upgrade this)
+        # VISUAL GRAPH
         st.write("### 🕸️ Concept Map")
+        topic = res.get('topic', 'Main Topic')
         concepts = res.get("key_concepts", [])
-        st.info(f"**Core Topic:** {res.get('topic')} \n\n **Linked Concepts:** {', '.join(concepts)}")
-        st.caption("*(Huzaifa: Replace this with a visual `streamlit-agraph` map)*")
         
-        # FEATURE 3: Flashcards
+        nodes = []
+        edges = []
+        
+        # Center Node
+        nodes.append(Node(id=topic, label=topic, size=25, color="#FF6B6B"))
+        
+        # Concept Nodes
+        for i, concept in enumerate(concepts):
+            concept_id = f"{concept}_{i}"
+            nodes.append(Node(id=concept_id, label=concept, size=15, color="#4ECDC4"))
+            edges.append(Edge(source=topic, target=concept_id, type="CURVE_SMOOTH"))
+            
+        config = Config(width=750,
+                        height=400,
+                        directed=True,
+                        physics=True,
+                        hierarchical=False,
+                        nodeHighlightBehavior=True,
+                        highlightColor="#F7A7A6",
+                        collapsible=False)
+                        
+        agraph(nodes=nodes, edges=edges, config=config)
+        
+        # Flashcards
         st.write("### 🗂️ Auto-Generated Flashcards")
         cards = res.get("flashcards", [])
         for card in cards:
