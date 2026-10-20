@@ -7,29 +7,25 @@ from google import genai
 from PIL import Image
 
 load_dotenv()
-
-SCREENSHOT_DIR = Path(__file__).parent.parent / "data" / "test_screenshots"
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 PROMPT = """You are an OCR + classification engine for a student's study app.
 Read the screenshot and return ONLY valid JSON (no markdown fences, no prose)
 with exactly these keys:
 {
   "subject": "e.g. Physics, Chemistry, History",
-  "topic": "short specific topic, e.g. Newton's Second Law",
-  "summary": "2-3 sentence plain-English summary of what this image teaches",
-  "key_concepts": ["concept 1", "concept 2", "concept 3"]
+  "topic": "short specific topic",
+  "summary": "2-3 sentence plain-English summary",
+  "detailed_notes": "Detailed, bulleted study notes explaining the concepts in the image.",
+  "key_concepts": ["concept 1", "concept 2", "concept 3"],
+  "raw_text": "The exact text extracted from the image",
+  "flashcards": [{"front": "Question", "back": "Answer"}]
 }
 """
 
 def analyze_image(image_path):
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        return {"error": "GEMINI_API_KEY not set in .env"}
-
     try:
-        client = genai.Client(api_key=api_key)
         img = Image.open(image_path)
-        
         response = client.models.generate_content(
             model='gemini-2.5-flash',
             contents=[PROMPT, img]
@@ -46,16 +42,31 @@ def analyze_image(image_path):
     except Exception as e:
         return {"error": str(e)}
 
+# --- NEW FEATURE: Smart Quiz Grader ---
+def grade_answer(topic, user_answer):
+    prompt = f"""
+    You are a helpful tutor. The student is studying {topic}.
+    The student wrote this explanation: "{user_answer}"
+    
+    Evaluate their answer using the Feynman Technique. If it is correct, praise them. 
+    If it is wrong or incomplete, gently correct them and explain the right answer in 2 sentences.
+    Return ONLY plain text.
+    """
+    response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
+    return response.text
+
+# --- NEW FEATURE: Chat with Notes ---
+def chat_with_notes(question, context_text):
+    prompt = f"""
+    You are an AI Tutor. Answer the student's question using ONLY the context below.
+    If the answer is not in the context, say "I couldn't find that in your notes."
+    
+    Context: {context_text}
+    Question: {question}
+    """
+    response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
+    return response.text
+
 if __name__ == "__main__":
-    files = sorted(SCREENSHOT_DIR.glob("shot_*.png"), key=lambda p: p.stat().st_mtime, reverse=True)
-    
-    if not files:
-        print("No screenshots found in data/test_screenshots. Run capture.py first.")
-        sys.exit(1)
-        
-    latest_shot = files[0]
-    print(f"📸 Processing latest screenshot: {latest_shot.name}")
-    print("🧠 Analyzing with Gemini...")
-    
-    result = analyze_image(latest_shot)
-    print(json.dumps(result, indent=2))
+    # (Keep your testing code here for the terminal)
+    pass
