@@ -6,10 +6,8 @@ from dotenv import load_dotenv
 from google import genai
 from PIL import Image
 
-# Load the secret key
 load_dotenv()
 
-# Path to the folder where capture.py saves images
 SCREENSHOT_DIR = Path(__file__).parent.parent / "data" / "test_screenshots"
 
 PROMPT = """You are an OCR + classification engine for a student's study app.
@@ -29,7 +27,6 @@ def analyze_image(image_path):
         return {"error": "GEMINI_API_KEY not set in .env"}
 
     try:
-        # Use the new google-genai client
         client = genai.Client(api_key=api_key)
         img = Image.open(image_path)
         
@@ -39,7 +36,6 @@ def analyze_image(image_path):
         )
         
         text = response.text.strip()
-        # Clean up markdown fences if Gemini adds them
         if text.startswith("```"):
             lines = text.splitlines()[1:]
             if lines and lines[-1].strip().startswith("```"):
@@ -50,9 +46,7 @@ def analyze_image(image_path):
     except Exception as e:
         return {"error": str(e)}
 
-# --- THIS ALLOWS YOU TO TEST FROM THE TERMINAL ---
 if __name__ == "__main__":
-    # Find the newest screenshot in the folder
     files = sorted(SCREENSHOT_DIR.glob("shot_*.png"), key=lambda p: p.stat().st_mtime, reverse=True)
     
     if not files:
