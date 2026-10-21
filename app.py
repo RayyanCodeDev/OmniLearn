@@ -9,13 +9,57 @@ st.set_page_config(page_title="OmniLearn", page_icon="🧠", layout="wide")
 
 if "analysis_result" not in st.session_state:
     st.session_state.analysis_result = None
+if "theme" not in st.session_state:
+    st.session_state.theme = "Dark"
 
-hide_st_style = """
+# --- PROBLEM 4 FIX: GLASSMORPHISM & THEME TOGGLE ---
+theme_choice = st.sidebar.toggle("Dark Mode", value=True)
+if theme_choice:
+    bg_color = "linear-gradient(135deg, #0f2027, #203a43, #2c5364)"
+    text_color = "#ffffff"
+    glass_bg = "rgba(255, 255, 255, 0.05)"
+    glass_border = "1px solid rgba(255, 255, 255, 0.1)"
+else:
+    bg_color = "linear-gradient(135deg, #e0eafc, #cfdef3)"
+    text_color = "#1a1a1a"
+    glass_bg = "rgba(255, 255, 255, 0.4)"
+    glass_border = "1px solid rgba(255, 255, 255, 0.6)"
+
+glass_css = f"""
 <style>
-#MainMenu {visibility: hidden;} header {visibility: hidden;} [data-testid="stToolbar"] {visibility: hidden;}
+/* Hide Streamlit Branding */
+#MainMenu {{visibility: hidden;}} header {{visibility: hidden;}} [data-testid="stToolbar"] {{visibility: hidden;}}
+footer {{visibility: hidden;}}
+
+/* Background Gradient */
+.stApp {{
+    background: {bg_color};
+    color: {text_color};
+}}
+
+/* Glassmorphism Panels */
+[data-testid="stVerticalBlock"] > div > [data-testid="stVerticalBlock"] {{
+    background: {glass_bg};
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-radius: 16px;
+    border: {glass_border};
+    padding: 20px;
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.2);
+    margin-bottom: 20px;
+}}
+
+/* Make Expanders Glassy */
+.streamlit-expanderHeader {{
+    background: transparent !important;
+    color: {text_color} !important;
+}}
+
+/* Text Colors */
+h1, h2, h3, h4, p, span, div {{ color: {text_color} !important; }}
 </style>
 """
-st.markdown(hide_st_style, unsafe_allow_html=True)
+st.markdown(glass_css, unsafe_allow_html=True)
 
 st.title("🧠 OmniLearn")
 st.subheader("Your AI-Powered Study Engine")
@@ -57,11 +101,15 @@ with tab3:
         res = st.session_state.analysis_result
         st.success(f"**Subject:** {res.get('subject')} | **Topic:** {res.get('topic')}")
         
-        # Detailed Notes
+        # PROBLEM 1 FIX: Clean Detailed Notes
+        notes = res.get('detailed_notes', 'No notes generated.')
+        if isinstance(notes, dict): # If AI returns a dict of indices, fix it
+            notes = "\n".join([f"- {v}" for k, v in notes.items()])
+        
         with st.expander("📖 View Detailed Study Notes", expanded=True):
-            st.write(res.get('detailed_notes', 'No detailed notes generated.'))
+            st.markdown(notes)
             
-        # VISUAL GRAPH
+        # PROBLEM 2 & 3 FIX: Bigger Graph, White Text
         st.write("### 🕸️ Concept Map")
         topic = res.get('topic', 'Main Topic')
         concepts = res.get("key_concepts", [])
@@ -69,27 +117,24 @@ with tab3:
         nodes = []
         edges = []
         
-        # Center Node
-        nodes.append(Node(id=topic, label=topic, size=25, color="#FF6B6B"))
+        nodes.append(Node(id=topic, label=topic, size=30, color="#FF6B6B", font={"color": "#ffffff", "size": 16, "face": "arial"}))
         
-        # Concept Nodes
         for i, concept in enumerate(concepts):
             concept_id = f"{concept}_{i}"
-            nodes.append(Node(id=concept_id, label=concept, size=15, color="#4ECDC4"))
-            edges.append(Edge(source=topic, target=concept_id, type="CURVE_SMOOTH"))
+            nodes.append(Node(id=concept_id, label=concept, size=20, color="#4ECDC4", font={"color": "#ffffff", "size": 14, "face": "arial"}))
+            edges.append(Edge(source=topic, target=concept_id, type="CURVE_SMOOTH", color="#ffffff"))
             
-        config = Config(width=750,
-                        height=400,
-                        directed=True,
-                        physics=True,
+        config = Config(width=1000, 
+                        height=500, 
+                        directed=True, 
+                        physics=True, 
                         hierarchical=False,
-                        nodeHighlightBehavior=True,
+                        nodeHighlightBehavior=True, 
                         highlightColor="#F7A7A6",
                         collapsible=False)
                         
         agraph(nodes=nodes, edges=edges, config=config)
         
-        # Flashcards
         st.write("### 🗂️ Auto-Generated Flashcards")
         cards = res.get("flashcards", [])
         for card in cards:
@@ -123,7 +168,7 @@ with tab5:
         res = st.session_state.analysis_result
         context = res.get("raw_text", res.get("summary", ""))
         
-        st.write("Ask a question about the material you just uploaded:")
+        st.write("Ask a question about the material, or ask the AI to explain it further:")
         user_question = st.text_input("Your Question:")
         
         if st.button("Ask AI"):
