@@ -128,15 +128,17 @@ with tab3:
         topic = res.get('topic', 'Main Topic')
         concepts = res.get("key_concepts", [])
         
-        # --- PYVIS GRAPH FIX ---
-        # Create a pyvis network
-        net = Network(height="500px", width="100%", bgcolor="transparent", font_color="white", directed=True)
+        # --- PYVIS GRAPH FIX (COLORS MATCH THEME) ---
+        graph_bg = "#0e1117" if theme_choice else "#ffffff"
+        graph_font = "#ffffff" if theme_choice else "#000000"
+
+        net = Network(height="500px", width="100%", bgcolor=graph_bg, font_color=graph_font, directed=True)
         
-        # Add nodes and edges
-        net.add_node(topic, label=topic, color="#FF6B6B", size=30)
+        # Add nodes and edges WITH explicit font colors and sizes
+        net.add_node(topic, label=topic, color="#FF6B6B", size=35, font={"size": 18, "color": graph_font, "face": "arial"})
         for i, concept in enumerate(concepts):
             concept_id = f"c_{i}"
-            net.add_node(concept_id, label=concept, color="#4ECDC4", size=20)
+            net.add_node(concept_id, label=concept, color="#4ECDC4", size=25, font={"size": 16, "color": graph_font, "face": "arial"})
             net.add_edge(topic, concept_id)
         
         # Set physics for a nice centered layout
