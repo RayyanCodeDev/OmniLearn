@@ -16,7 +16,7 @@ with exactly these keys:
   "subject": "e.g. Physics, Chemistry, History",
   "topic": "short specific topic",
   "summary": "2-3 sentence plain-English summary",
-  "detailed_notes": "Detailed, bulleted study notes explaining the concepts in the image.",
+  "detailed_notes": "A single markdown-formatted string containing detailed, bulleted study notes explaining the concepts in the image.",
   "key_concepts": ["concept 1", "concept 2", "concept 3"],
   "raw_text": "The exact text extracted from the image",
   "flashcards": [{"front": "Question", "back": "Answer"}]
@@ -42,7 +42,6 @@ def analyze_image(image_path):
     except Exception as e:
         return {"error": str(e)}
 
-# --- NEW FEATURE: Smart Quiz Grader ---
 def grade_answer(topic, user_answer):
     prompt = f"""
     You are a helpful tutor. The student is studying {topic}.
@@ -55,18 +54,21 @@ def grade_answer(topic, user_answer):
     response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
     return response.text
 
-# --- NEW FEATURE: Chat with Notes ---
+# --- PROBLEM 5 FIX: SMARTER AI TUTOR ---
 def chat_with_notes(question, context_text):
     prompt = f"""
-    You are an AI Tutor. Answer the student's question using ONLY the context below.
-    If the answer is not in the context, say "I couldn't find that in your notes."
+    You are OmniLearn, an expert AI Tutor. 
+    The student has uploaded some study materials, and the extracted text is provided below as "Context".
     
-    Context: {context_text}
+    Context: 
+    {context_text}
+    
     Question: {question}
+    
+    Instructions:
+    1. If the question is directly related to the Context, use the Context to give a specific, accurate answer.
+    2. If the question is a general knowledge question (e.g., "Explain this like I'm 5" or "Give me an example"), use your vast AI knowledge to answer it, but try to relate it back to the Context if possible.
+    3. Be helpful, conversational, and encouraging.
     """
     response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
     return response.text
-
-if __name__ == "__main__":
-    # (Keep your testing code here for the terminal)
-    pass
