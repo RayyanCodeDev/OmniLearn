@@ -9,11 +9,12 @@ st.set_page_config(page_title="OmniLearn", page_icon="🧠", layout="wide")
 
 if "analysis_result" not in st.session_state:
     st.session_state.analysis_result = None
-if "theme" not in st.session_state:
-    st.session_state.theme = "Dark"
 
-# --- PROBLEM 4 FIX: GLASSMORPHISM & THEME TOGGLE ---
-theme_choice = st.sidebar.toggle("Dark Mode", value=True)
+# --- PROBLEM 1 FIX: Toggle in Main UI ---
+col1, col2 = st.columns([8, 1])
+with col2:
+    theme_choice = st.toggle("Dark Mode", value=True)
+
 if theme_choice:
     bg_color = "linear-gradient(135deg, #0f2027, #203a43, #2c5364)"
     text_color = "#ffffff"
@@ -25,6 +26,7 @@ else:
     glass_bg = "rgba(255, 255, 255, 0.4)"
     glass_border = "1px solid rgba(255, 255, 255, 0.6)"
 
+# --- PROBLEM 2 FIX: Better Glassmorphism CSS ---
 glass_css = f"""
 <style>
 /* Hide Streamlit Branding */
@@ -37,22 +39,30 @@ footer {{visibility: hidden;}}
     color: {text_color};
 }}
 
-/* Glassmorphism Panels */
-[data-testid="stVerticalBlock"] > div > [data-testid="stVerticalBlock"] {{
+/* Glassmorphism Container */
+[data-testid="stAppViewContainer"] > .main .block-container {{
     background: {glass_bg};
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border-radius: 16px;
+    backdrop-filter: blur(15px);
+    -webkit-backdrop-filter: blur(15px);
+    border-radius: 20px;
     border: {glass_border};
-    padding: 20px;
-    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.2);
-    margin-bottom: 20px;
+    padding: 2rem;
+    margin-top: 2rem;
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
 }}
 
-/* Make Expanders Glassy */
-.streamlit-expanderHeader {{
-    background: transparent !important;
-    color: {text_color} !important;
+/* Glassy Tabs */
+.stTabs [data-baseweb="tab-list"] {{ gap: 10px; }}
+.stTabs [data-baseweb="tab"] {{
+    background: {glass_bg};
+    border: {glass_border};
+    border-radius: 10px;
+    color: {text_color};
+    padding: 10px 20px;
+}}
+.stTabs [aria-selected="true"] {{
+    background: rgba(255, 255, 255, 0.2) !important;
+    border-bottom: 2px solid #FF6B6B !important;
 }}
 
 /* Text Colors */
@@ -101,15 +111,14 @@ with tab3:
         res = st.session_state.analysis_result
         st.success(f"**Subject:** {res.get('subject')} | **Topic:** {res.get('topic')}")
         
-        # PROBLEM 1 FIX: Clean Detailed Notes
         notes = res.get('detailed_notes', 'No notes generated.')
-        if isinstance(notes, dict): # If AI returns a dict of indices, fix it
+        if isinstance(notes, dict):
             notes = "\n".join([f"- {v}" for k, v in notes.items()])
         
         with st.expander("📖 View Detailed Study Notes", expanded=True):
             st.markdown(notes)
             
-        # PROBLEM 2 & 3 FIX: Bigger Graph, White Text
+        # --- PROBLEM 3 FIX: Graph Centering & Sizing ---
         st.write("### 🕸️ Concept Map")
         topic = res.get('topic', 'Main Topic')
         concepts = res.get("key_concepts", [])
@@ -117,21 +126,29 @@ with tab3:
         nodes = []
         edges = []
         
-        nodes.append(Node(id=topic, label=topic, size=30, color="#FF6B6B", font={"color": "#ffffff", "size": 16, "face": "arial"}))
+        nodes.append(Node(id=topic, label=topic, size=30, color="#FF6B6B", font={"color": "#ffffff", "size": 16}))
         
         for i, concept in enumerate(concepts):
             concept_id = f"{concept}_{i}"
-            nodes.append(Node(id=concept_id, label=concept, size=20, color="#4ECDC4", font={"color": "#ffffff", "size": 14, "face": "arial"}))
+            nodes.append(Node(id=concept_id, label=concept, size=20, color="#4ECDC4", font={"color": "#ffffff", "size": 14}))
             edges.append(Edge(source=topic, target=concept_id, type="CURVE_SMOOTH", color="#ffffff"))
             
-        config = Config(width=1000, 
-                        height=500, 
+        # Reduced width to 700 so it fits on screen, added physics stabilization
+        config = Config(width=700, 
+                        height=450, 
                         directed=True, 
                         physics=True, 
                         hierarchical=False,
                         nodeHighlightBehavior=True, 
                         highlightColor="#F7A7A6",
-                        collapsible=False)
+                        collapsible=False,
+                        **{
+                            "barnesHut": {
+                                "gravitationalConstant": -3000,
+                                "centralGravity": 0.3,
+                                "springLength": 150
+                            }
+                        })
                         
         agraph(nodes=nodes, edges=edges, config=config)
         
