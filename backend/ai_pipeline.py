@@ -27,7 +27,7 @@ def analyze_image(image_path):
     try:
         img = Image.open(image_path)
         response = client.models.generate_content(
-            model='gemini-2.5-flash-lite',
+            model='gemini-3.5-flash-lite',
             contents=[PROMPT, img]
         )
         
@@ -51,7 +51,7 @@ def grade_answer(topic, user_answer):
     If it is wrong or incomplete, gently correct them and explain the right answer in 2 sentences.
     Return ONLY plain text.
     """
-    response = client.models.generate_content(model='gemini-2.5-flash-lite', contents=prompt)
+    response = client.models.generate_content(model='gemini-3.5-flash-lite', contents=prompt)
     return response.text
 
 def chat_with_notes(question, context_text):
@@ -69,5 +69,5 @@ def chat_with_notes(question, context_text):
     2. If the question is a general knowledge question (e.g., "Explain this like I'm 5" or "Give me an example"), use your vast AI knowledge to answer it, but try to relate it back to the Context if possible.
     3. Be helpful, conversational, and encouraging.
     """
-    response = client.models.generate_content(model='gemini-2.5-flash-lite', contents=prompt)
+    response = client.models.generate_content(model='gemini-3.5-flash-lite', contents=prompt)
     return response.text
