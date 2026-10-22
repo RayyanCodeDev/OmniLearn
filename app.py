@@ -86,7 +86,8 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 
 with tab1:
     st.header("Welcome to OmniLearn")
-    st.write("Upload a screenshot to instantly generate notes, flashcards, quizzes, and chat with your notes.")
+    st.write("Upload a screenshot or use your global hotkey to instantly generate notes, flashcards, quizzes, and chat with your notes.")
+    st.info("💡 **Demo Tip:** Use the Capture Feed tab to test the OCR and AI knowledge extraction pipeline live.")
 
 with tab2:
     st.header("📸 Capture Feed")
@@ -103,16 +104,16 @@ with tab2:
         with st.spinner("🧠 Extracting knowledge and generating study materials..."):
             result = analyze_image(temp_path)
             
-        if "error" in result:
+        if isinstance(result, dict) and "error" in result:
             st.error(f"Error: {result['error']}")
         else:
             st.session_state.analysis_result = result
-            st.success("Analysis Complete! Check the other tabs.")
+            st.success("Analysis Complete! Check the Knowledge Graph and Quiz tabs.")
 
 with tab3:
     st.header("📝 Knowledge Graph & Notes")
     if st.session_state.analysis_result is None:
-        st.warning("Please upload a screenshot in Tab 2 first.")
+        st.warning("Please upload a screenshot in the **Capture Feed** tab first.")
     else:
         res = st.session_state.analysis_result
         st.success(f"**Subject:** {res.get('subject')} | **Topic:** {res.get('topic')}")
@@ -128,23 +129,20 @@ with tab3:
         topic = res.get('topic', 'Main Topic')
         concepts = res.get("key_concepts", [])
         
-        # --- PYVIS GRAPH FIX (COLORS MATCH THEME) ---
-        graph_bg = "#0e1117" if theme_choice else "#ffffff"
-        graph_font = "#ffffff" if theme_choice else "#000000"
+        # --- PYVIS GRAPH CONFIG ---
+        pyvis_bg = "#0e1117" if theme_choice else "#ffffff"
+        pyvis_font = "#ffffff" if theme_choice else "#000000"
 
-        net = Network(height="500px", width="100%", bgcolor=graph_bg, font_color=graph_font, directed=True)
+        net = Network(height="500px", width="100%", bgcolor=pyvis_bg, font_color=pyvis_font, directed=True)
         
-        # Add nodes and edges WITH explicit font colors and sizes
-        net.add_node(topic, label=topic, color="#FF6B6B", size=35, font={"size": 18, "color": graph_font, "face": "arial"})
+        net.add_node(topic, label=topic, color="#FF6B6B", size=35, font={"size": 18, "color": pyvis_font, "face": "arial"})
         for i, concept in enumerate(concepts):
             concept_id = f"c_{i}"
-            net.add_node(concept_id, label=concept, color="#4ECDC4", size=25, font={"size": 16, "color": graph_font, "face": "arial"})
+            net.add_node(concept_id, label=concept, color="#4ECDC4", size=25, font={"size": 16, "color": pyvis_font, "face": "arial"})
             net.add_edge(topic, concept_id)
         
-        # Set physics for a nice centered layout
         net.repulsion(node_distance=150, central_gravity=0.2, spring_length=200, spring_strength=0.05, damping=0.09)
         
-        # Save and render
         try:
             path = "temp_graph.html"
             net.save_graph(path)
@@ -163,7 +161,7 @@ with tab3:
 with tab4:
     st.header("⚙️ Feynman Technique Quiz")
     if st.session_state.analysis_result is None:
-        st.warning("Please upload a screenshot in Tab 2 first.")
+        st.warning("Please upload a screenshot in the **Capture Feed** tab first.")
     else:
         res = st.session_state.analysis_result
         topic = res.get('topic', 'the topic')
@@ -182,7 +180,7 @@ with tab4:
 with tab5:
     st.header("💬 AI Tutor (Chat with your Notes)")
     if st.session_state.analysis_result is None:
-        st.warning("Please upload a screenshot in Tab 2 first.")
+        st.warning("Please upload a screenshot in the **Capture Feed** tab first.")
     else:
         res = st.session_state.analysis_result
         context = res.get("raw_text", res.get("summary", ""))
