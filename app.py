@@ -2,7 +2,7 @@ import streamlit as st
 import os
 from backend.ai_pipeline import analyze_image, grade_answer, chat_with_notes
 
-st.set_page_config(page_title="OmniLearn", page_icon="🧠", layout="wide")
+st.set_page_config(page_title="StudyStack", page_icon="📚", layout="wide")
 
 if "analysis_result" not in st.session_state:
     st.session_state.analysis_result = None
@@ -85,15 +85,15 @@ h1, h2, h3, h4, p, span, div {{ color: {text_color} !important; }}
 """
 st.markdown(glass_css, unsafe_allow_html=True)
 
-st.title("🧠 OmniLearn")
-st.subheader("Your AI-Powered Study Engine")
+st.title("📚 StudyStack")
+st.subheader("Organize your study resources with AI")
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "🏠 Home", "📸 Capture Feed", "📝 Knowledge Graph", "⚙️ Smart Quiz", "💬 AI Tutor"
 ])
 
 with tab1:
-    st.header("Welcome to OmniLearn")
+    st.header("Welcome to StudyStack")
     st.write("Upload a screenshot to instantly generate notes, flashcards, quizzes, and chat with your notes.")
 
 with tab2:
@@ -137,7 +137,6 @@ with tab3:
         concepts = res.get("key_concepts", [])
         
         # --- GRAPHVIZ FIX: NATIVE STREAMLIT GRAPHING ---
-        # This guarantees centering and perfect text visibility
         font_c = "white" if theme_choice else "black"
         
         graph_dot = f"""
@@ -152,7 +151,6 @@ with tab3:
         }}
         """
         
-        # Add concepts to graph
         for concept in concepts:
             safe_concept = concept.replace('"', '')
             graph_dot += f'''
