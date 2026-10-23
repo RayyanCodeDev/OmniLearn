@@ -473,7 +473,7 @@ with tab6:
         st.markdown("---")
         
 with tab6:
-    with card("focus_hub"):
+    with card("focus_hub_tab"):
         st.header("⏱️ Focus & Pomodoro Hub")
         st.write("Stay locked in. Choose your study mode, track your focus time, and build your daily study streak.")
         
