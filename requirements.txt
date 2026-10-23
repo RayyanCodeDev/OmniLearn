@@ -1,7 +1,4 @@
-streamlit
+streamlit>=1.40
 google-genai
-pyautogui
-keyboard
 pillow
 python-dotenv
-streamlit-agraph
