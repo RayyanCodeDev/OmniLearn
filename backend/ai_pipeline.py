@@ -105,15 +105,25 @@ If it is wrong or incomplete, gently correct them and explain the right answer i
 Return ONLY plain text.""")
 
 
-def chat_with_notes(question, context_text):
+def chat_with_notes(question, context_text, history=None):
+    """history is a list of {"role": "user" | "assistant", "content": str}, oldest first."""
+    convo = ""
+    for m in (history or [])[-8:]:  # last 8 messages keep follow-ups working without a huge prompt
+        who = "Student" if m["role"] == "user" else "Tutor"
+        convo += f"{who}: {m['content']}\n"
+
     return _ask(f"""You are StudyStack, an expert AI tutor.
 The student's extracted study material is below as "Context".
 
 Context:
 {context_text}
 
-Question: {question}
+Conversation so far:
+{convo or "(none yet)"}
+
+New question from the student: {question}
 
 1. If the question relates to the Context, answer specifically from it.
 2. If it is a general request ("explain like I'm 5", "give an example"), use your own knowledge but tie it back to the Context when you can.
-3. Be helpful, conversational and encouraging.""")
+3. Treat short follow-ups ("simpler", "why?", "another example") as continuing the conversation above.
+4. Be helpful, conversational and encouraging.""")
