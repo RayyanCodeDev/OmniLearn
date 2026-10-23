@@ -473,7 +473,7 @@ with tab6:
         st.markdown("---")
         st.subheader("🎯 Active Session Controller")
         col_a, col_b, col_c = st.columns(3)
-                with col_a:
+        with col_a:
             if st.button("🚀 Start Focus Session"):
                 # --- TAB 6: FOCUS HUB ---
 with tab6:
