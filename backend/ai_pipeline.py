@@ -2,24 +2,55 @@ import os
 import json
 from dotenv import load_dotenv
 from google import genai
-from google.genai import types
+from google.genai import errors, types
 from PIL import Image
 
 load_dotenv()
 
 MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+KEY_NAMES = ("GEMINI_API_KEY", "GOOGLE_API_KEY")
 _client = None
+
+
+def _find_key():
+    """Look for the API key in environment variables first, then in Streamlit Secrets."""
+    for name in KEY_NAMES:
+        if os.getenv(name):
+            return os.getenv(name)
+    try:
+        import streamlit as st
+        for name in KEY_NAMES:
+            if name in st.secrets:
+                return st.secrets[name]
+    except Exception:
+        pass
+    return None
 
 
 def get_client():
     """Create the client lazily so a missing key shows a normal error instead of crashing on import."""
     global _client
     if _client is None:
-        key = os.getenv("GEMINI_API_KEY")
+        key = _find_key()
         if not key:
-            raise RuntimeError("GEMINI_API_KEY is not set. Add it in Streamlit Cloud > Settings > Secrets.")
+            raise RuntimeError("GEMINI_API_KEY is not set. Add it in Streamlit Cloud > Manage app > Settings > Secrets.")
         _client = genai.Client(api_key=key)
     return _client
+
+
+def friendly_error(e):
+    """Turn an API exception into a short message a student can read."""
+    if isinstance(e, errors.ClientError):
+        code = getattr(e, "code", None)
+        if code == 429:
+            return ("⚠️ Gemini's free-tier limit was reached. Wait about a minute and try again. "
+                    "If it keeps happening, you've probably used today's free quota.")
+        if code == 404:
+            return f"⚠️ The model '{MODEL}' was not found. Set GEMINI_MODEL in Secrets to a model your key can use."
+        if code in (401, 403):
+            return "⚠️ Gemini rejected the API key. Check GEMINI_API_KEY in Secrets."
+        return f"⚠️ Gemini returned an error ({code}): {getattr(e, 'message', e)}"
+    return f"⚠️ Something went wrong: {e}"
 
 
 PROMPT = """You are an OCR + classification engine for a student's study app.
@@ -55,11 +86,14 @@ def analyze_image(image_file):
             text = "\n".join(lines).strip()
         return json.loads(text)
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": friendly_error(e)}
 
 
 def _ask(prompt):
-    return get_client().models.generate_content(model=MODEL, contents=prompt).text
+    try:
+        return get_client().models.generate_content(model=MODEL, contents=prompt).text
+    except Exception as e:
+        return friendly_error(e)
 
 
 def grade_answer(topic, user_answer):
