@@ -1,6 +1,8 @@
 import streamlit as st
 import os
 from backend.ai_pipeline import analyze_image, grade_answer, chat_with_notes
+from pyvis.network import Network
+import streamlit.components.v1 as components
 
 st.set_page_config(page_title="StudyStack", page_icon="📚", layout="wide")
 
@@ -19,6 +21,8 @@ if theme_choice:
     glass_border = "1px solid rgba(255, 255, 255, 0.15)"
     glass_shadow = "0 8px 32px 0 rgba(0, 0, 0, 0.37)"
     tab_bg = "rgba(255, 255, 255, 0.1)"
+    graph_bg = "#0e1117"
+    graph_font = "#ffffff"
 else:
     bg_color = "linear-gradient(135deg, #e0eafc, #cfdef3)"
     text_color = "#1a1a1a"
@@ -26,6 +30,8 @@ else:
     glass_border = "1px solid rgba(255, 255, 255, 0.8)"
     glass_shadow = "0 8px 32px 0 rgba(31, 38, 135, 0.15)"
     tab_bg = "rgba(255, 255, 255, 0.8)"
+    graph_bg = "#ffffff"
+    graph_font = "#000000"
 
 # --- TRUE GLASSMORPHISM CSS ---
 glass_css = f"""
@@ -136,34 +142,45 @@ with tab3:
         topic = res.get('topic', 'Main Topic')
         concepts = res.get("key_concepts", [])
         
-        # --- GRAPHVIZ FIX: NATIVE STREAMLIT GRAPHING ---
-        font_c = "white" if theme_choice else "black"
+        # --- PYVIS GRAPH FIX (Centered & Readable) ---
+        net = Network(height="500px", width="100%", bgcolor=graph_bg, font_color=graph_font, directed=True)
         
-        graph_dot = f"""
-        digraph G {{
-            bgcolor="transparent";
-            layout="neato";
-            
-            node [shape=circle, style=filled, fontname="Arial", fontcolor="{font_c}", fixedsize=true, width=1.5];
-            edge [color="#FF6B6B", penwidth=2, arrowsize=0.8];
-            
-            "{topic}" [color="#FF6B6B", width=2.0, fontsize=14, fontcolor="white"];
-        }}
-        """
+        # Add main topic node
+        net.add_node(topic, label=topic, color="#FF6B6B", size=35, font={"size": 20, "color": graph_font, "face": "arial", "bold": True})
         
-        for concept in concepts:
-            safe_concept = concept.replace('"', '')
-            graph_dot += f'''
-            "{safe_concept}" [color="#4ECDC4", fontsize=12];
-            "{topic}" -> "{safe_concept}";
-            '''
-            
-        graph_dot += "}"
+        # Add concept nodes
+        for i, concept in enumerate(concepts):
+            concept_id = f"c_{i}"
+            net.add_node(concept_id, label=concept, color="#4ECDC4", size=25, font={"size": 16, "color": graph_font, "face": "arial"})
+            net.add_edge(topic, concept_id)
         
+        # Strict physics settings to keep it perfectly in the middle
+        net.set_options("""
+        var options = {
+          "physics": {
+            "forceAtlas2Based": {
+              "gravitationalConstant": -100,
+              "centralGravity": 0.01,
+              "springLength": 100,
+              "springConstant": 0.08
+            },
+            "maxVelocity": 50,
+            "solver": "forceAtlas2Based",
+            "timestep": 0.35,
+            "stabilization": {"iterations": 150}
+          }
+        }
+        """)
+        
+        # Save and render
         try:
-            st.graphviz_chart(graph_dot, use_container_width=True)
+            path = "temp_graph.html"
+            net.save_graph(path)
+            with open(path, 'r', encoding='utf-8') as f:
+                html_data = f.read()
+            components.html(html_data, height=520)
         except Exception as e:
-            st.error(f"Graph error: {e}")
+            st.error(f"Could not generate graph: {e}")
         
         st.write("### 🗂️ Auto-Generated Flashcards")
         cards = res.get("flashcards", [])
