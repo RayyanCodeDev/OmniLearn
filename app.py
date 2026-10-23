@@ -8,6 +8,8 @@ if "analysis_result" not in st.session_state:
     st.session_state.analysis_result = None
 if "file_key" not in st.session_state:
     st.session_state.file_key = None
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
 
 # ---------- THEME ----------
 _, toggle_col = st.columns([8, 1])
@@ -73,8 +75,12 @@ header[data-testid="stHeader"]{background:transparent;}
 [data-testid="stFileUploaderDropzone"]{background:var(--glass2);border:1.5px dashed var(--border);border-radius:18px;}
 [data-testid="stFileUploaderDropzone"] *{color:var(--text)!important;}
 [data-testid="stAlert"]{background:var(--glass2);border:1px solid var(--border);border-radius:16px;backdrop-filter:blur(14px);}
-.stButton>button{background:linear-gradient(135deg,#7c5cff,#00c8ff);color:#fff;border:0;border-radius:999px;padding:.55rem 1.6rem;font-weight:700;box-shadow:0 0 22px var(--glow);}
-.stButton>button:hover{filter:brightness(1.12);color:#fff;}
+.stButton>button,[data-testid="stFormSubmitButton"]>button{background:linear-gradient(135deg,#7c5cff,#00c8ff);color:#fff;border:0;border-radius:999px;padding:.55rem 1.6rem;font-weight:700;box-shadow:0 0 22px var(--glow);}
+.stButton>button:hover,[data-testid="stFormSubmitButton"]>button:hover{filter:brightness(1.12);color:#fff;}
+
+/* Chat form and message bubbles */
+[data-testid="stForm"]{border:none!important;padding:0!important;background:transparent!important;}
+[data-testid="stChatMessage"]{background:var(--glass);border:1px solid var(--border);border-radius:18px;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);}
 
 /* Center the concept map */
 [data-testid="stGraphVizChart"]{display:flex;justify-content:center;}
@@ -149,6 +155,7 @@ with tab2:
                 else:
                     st.session_state.analysis_result = result
                     st.session_state.file_key = key
+                    st.session_state.chat_history = []  # new material = fresh chat
             if st.session_state.file_key == key:
                 st.success("Analysis complete. Open the other tabs.")
 
@@ -210,10 +217,32 @@ with tab5:
         context = res.get("raw_text") or res.get("summary", "")
         with card("chat"):
             st.header("AI tutor")
-            q = st.text_input("Ask about the material")
-            if st.button("Ask"):
+
+            if not st.session_state.chat_history:
+                st.caption("Ask anything about your notes, or try: \"Explain this like I'm 5\".")
+            for m in st.session_state.chat_history:
+                with st.chat_message(m["role"]):
+                    st.markdown(m["content"])
+
+            # clear_on_submit empties the box after every question, so you can type the next one right away
+            with st.form("chat_form", clear_on_submit=True):
+                q = st.text_input("Ask about the material", placeholder="Type your question and press Enter")
+                sent = st.form_submit_button("Ask")
+
+            if sent:
                 if q.strip():
                     with st.spinner("Thinking..."):
-                        st.write(chat_with_notes(q, context))
+                        reply = chat_with_notes(q, context, st.session_state.chat_history)
+                    if reply.startswith("⚠️"):
+                        st.warning(reply)  # errors are shown but not saved in the chat
+                    else:
+                        st.session_state.chat_history.append({"role": "user", "content": q})
+                        st.session_state.chat_history.append({"role": "assistant", "content": reply})
+                        st.rerun()
                 else:
                     st.warning("Type a question first.")
+
+            if st.session_state.chat_history:
+                if st.button("Clear chat"):
+                    st.session_state.chat_history = []
+                    st.rerun()
