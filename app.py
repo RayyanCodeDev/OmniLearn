@@ -1,15 +1,21 @@
+import random
 import textwrap
 import streamlit as st
 from backend.ai_pipeline import analyze_image, grade_answer, chat_with_notes
 
 st.set_page_config(page_title="StudyStack", page_icon="📚", layout="wide")
 
+# ---------- SESSION STATE ----------
 if "analysis_result" not in st.session_state:
     st.session_state.analysis_result = None
 if "file_key" not in st.session_state:
     st.session_state.file_key = None
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
+if "known" not in st.session_state:
+    st.session_state.known = set()
+if "mcq" not in st.session_state:
+    st.session_state.mcq = None
 
 # ---------- THEME ----------
 _, toggle_col = st.columns([8, 1])
@@ -75,8 +81,8 @@ header[data-testid="stHeader"]{background:transparent;}
 [data-testid="stFileUploaderDropzone"]{background:var(--glass2);border:1.5px dashed var(--border);border-radius:18px;}
 [data-testid="stFileUploaderDropzone"] *{color:var(--text)!important;}
 [data-testid="stAlert"]{background:var(--glass2);border:1px solid var(--border);border-radius:16px;backdrop-filter:blur(14px);}
-.stButton>button,[data-testid="stFormSubmitButton"]>button{background:linear-gradient(135deg,#7c5cff,#00c8ff);color:#fff;border:0;border-radius:999px;padding:.55rem 1.6rem;font-weight:700;box-shadow:0 0 22px var(--glow);}
-.stButton>button:hover,[data-testid="stFormSubmitButton"]>button:hover{filter:brightness(1.12);color:#fff;}
+.stButton>button,[data-testid="stFormSubmitButton"]>button,[data-testid="stDownloadButton"]>button{background:linear-gradient(135deg,#7c5cff,#00c8ff);color:#fff;border:0;border-radius:999px;padding:.55rem 1.6rem;font-weight:700;box-shadow:0 0 22px var(--glow);}
+.stButton>button:hover,[data-testid="stFormSubmitButton"]>button:hover,[data-testid="stDownloadButton"]>button:hover{filter:brightness(1.12);color:#fff;}
 
 /* Chat form and message bubbles */
 [data-testid="stForm"]{border:none!important;padding:0!important;background:transparent!important;}
@@ -93,6 +99,7 @@ for k, v in THEMES[dark].items():
 st.markdown(css, unsafe_allow_html=True)
 
 
+# ---------- HELPERS ----------
 def card(name):
     return st.container(border=True, key=f"card_{name}")
 
@@ -100,6 +107,89 @@ def card(name):
 def need_upload(tab_name):
     with card(f"empty_{tab_name}"):
         st.info("Upload a screenshot in the Capture tab first.")
+
+
+def fix_latex(s):
+    """The AI's JSON turns '\\text' into TAB+'ext' (and '\\times', '\\frac' the same way). Put the backslash back."""
+    s = str(s)
+    fixes = {
+        "\text": r"\text", "\times": r"\times", "\theta": r"\theta", "\tau": r"\tau",
+        "\frac": r"\frac", "\beta": r"\beta", "\bar": r"\bar",
+        "\rho": r"\rho", "\rightarrow": r"\rightarrow",
+        "\alpha": r"\alpha", "\approx": r"\approx", "\vec": r"\vec",
+    }
+    for bad, good in fixes.items():
+        s = s.replace(bad, good)
+    return s
+
+
+def build_mcq(flashcards):
+    """Make multiple-choice questions from the flashcards: the back is the right answer,
+    other cards' backs are the wrong options."""
+    cards = [c for c in flashcards
+             if str(c.get("front") or "").strip() and str(c.get("back") or "").strip()]
+    backs = sorted({str(c["back"]).strip() for c in cards})
+    questions = []
+    for c in cards:
+        correct = str(c["back"]).strip()
+        others = [b for b in backs if b != correct]
+        random.shuffle(others)
+        options = [correct] + others[:3]
+        if len(options) < 2:
+            continue
+        random.shuffle(options)
+        questions.append({"q": str(c["front"]).strip(), "options": options, "answer": correct})
+    random.shuffle(questions)
+    return questions
+
+
+def mcq_quiz(flashcards):
+    if st.session_state.mcq is None:
+        st.session_state.mcq = {
+            "qs": build_mcq(flashcards), "i": 0, "score": 0,
+            "checked": False, "correct": False, "run": random.randint(0, 10**9),
+        }
+    m = st.session_state.mcq
+    qs = m["qs"]
+
+    if len(qs) < 1:
+        st.info("Not enough flashcards to build a multiple-choice quiz from this screenshot.")
+        return
+
+    if m["i"] >= len(qs):
+        st.success(f"🎉 Finished! Your score: {m['score']}/{len(qs)}")
+        if st.button("🔄 Restart quiz", key="mcq_restart"):
+            st.session_state.mcq = None
+            st.rerun()
+        return
+
+    q = qs[m["i"]]
+    st.progress(m["i"] / len(qs))
+    st.caption(f"Question {m['i'] + 1} of {len(qs)}  |  Score: {m['score']}")
+    st.subheader(q["q"])
+    pick = st.radio("Choose one:", q["options"], index=None,
+                    key=f"mcq_pick_{m['run']}_{m['i']}", disabled=m["checked"])
+
+    if not m["checked"]:
+        if st.button("Check answer", key="mcq_check"):
+            if pick is None:
+                st.warning("Pick an answer first.")
+            else:
+                m["checked"] = True
+                m["correct"] = (pick == q["answer"])
+                if m["correct"]:
+                    m["score"] += 1
+                st.rerun()
+    else:
+        if m["correct"]:
+            st.success("✅ Correct!")
+        else:
+            st.error(f"❌ Not quite. The correct answer is: {q['answer']}")
+        label = "Next question ➡️" if m["i"] + 1 < len(qs) else "See results 🏁"
+        if st.button(label, key="mcq_next"):
+            m["i"] += 1
+            m["checked"] = False
+            st.rerun()
 
 
 # ---------- CONCEPT MAP ----------
@@ -156,6 +246,8 @@ with tab2:
                     st.session_state.analysis_result = result
                     st.session_state.file_key = key
                     st.session_state.chat_history = []  # new material = fresh chat
+                    st.session_state.known = set()      # fresh flashcard progress
+                    st.session_state.mcq = None         # fresh multiple-choice quiz
             if st.session_state.file_key == key:
                 st.success("Analysis complete. Open the other tabs.")
 
@@ -170,12 +262,21 @@ with tab3:
             notes = res.get("detailed_notes", "No notes generated.")
             if isinstance(notes, dict):
                 notes = "\n".join(f"- {v}" for v in notes.values())
+            notes = fix_latex(notes)
             with st.expander("📖 Detailed notes", expanded=True):
                 st.markdown(notes)
+            st.download_button("⬇️ Download notes", notes, file_name="study_notes.txt", key="dl_notes")
 
         with card("graph"):
             st.header("Concept map")
-            concepts = [c for c in res.get("key_concepts", []) if str(c).strip()]
+            topic_name = str(res.get("topic", "")).strip().lower()
+            concepts, seen = [], set()
+            for c in res.get("key_concepts", []):
+                name = str(c or "").strip()
+                low = name.lower()
+                if name and low != topic_name and low not in seen:  # no empty, duplicate or topic-copy nodes
+                    seen.add(low)
+                    concepts.append(name)
             if concepts:
                 dot = build_dot(res.get("topic", "Topic"), concepts, res.get("relationships", []))
                 try:
@@ -188,9 +289,16 @@ with tab3:
 
         with card("flash"):
             st.header("Flashcards")
-            for c in res.get("flashcards", []):
+            cards = res.get("flashcards", [])
+            st.caption(f"Mastered: {len(st.session_state.known)}/{len(cards)}")
+            for i, c in enumerate(cards):
                 with st.expander(f"❓ {c.get('front')}"):
                     st.write(f"**Answer:** {c.get('back')}")
+                    if i in st.session_state.known:
+                        st.success("Marked as known ✅")
+                    elif st.button("✅ I knew it", key=f"known_{i}"):
+                        st.session_state.known.add(i)
+                        st.rerun()
 
 with tab4:
     res = st.session_state.analysis_result
@@ -199,15 +307,20 @@ with tab4:
     else:
         topic = res.get("topic", "the topic")
         with card("quiz"):
-            st.header("Feynman quiz")
-            st.write(f"Explain **{topic}** in your own words and get graded.")
-            answer = st.text_area("Your explanation")
-            if st.button("Grade my answer"):
-                if answer.strip():
-                    with st.spinner("Grading..."):
-                        st.write(grade_answer(topic, answer))
-                else:
-                    st.warning("Type an explanation first.")
+            st.header("Smart quiz")
+            mode = st.radio("Quiz mode", ["Multiple choice", "Feynman (explain it)"],
+                            horizontal=True, key="quiz_mode")
+            if mode == "Multiple choice":
+                mcq_quiz(res.get("flashcards", []))
+            else:
+                st.write(f"Explain **{topic}** in your own words and get graded.")
+                answer = st.text_area("Your explanation", key="feynman_answer")
+                if st.button("Grade my answer", key="feynman_grade"):
+                    if answer.strip():
+                        with st.spinner("Grading..."):
+                            st.write(grade_answer(topic, answer))
+                    else:
+                        st.warning("Type an explanation first.")
 
 with tab5:
     res = st.session_state.analysis_result
@@ -243,6 +356,6 @@ with tab5:
                     st.warning("Type a question first.")
 
             if st.session_state.chat_history:
-                if st.button("Clear chat"):
+                if st.button("Clear chat", key="clear_chat"):
                     st.session_state.chat_history = []
                     st.rerun()
