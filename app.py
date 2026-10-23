@@ -471,11 +471,7 @@ with tab6:
             st.metric("Total Focus Time Today", f"{st.session_state.study_minutes} mins", delta="+15 mins vs yesterday")
         
         st.markdown("---")
-        st.subheader("🎯 Active Session Controller")
-        col_a, col_b, col_c = st.columns(3)
-        with col_a:
-            if st.button("🚀 Start Focus Session"):
-                # --- TAB 6: FOCUS HUB ---
+        
 with tab6:
     with card("focus_hub"):
         st.header("⏱️ Focus & Pomodoro Hub")
