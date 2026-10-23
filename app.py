@@ -91,6 +91,11 @@ def card(name):
     return st.container(border=True, key=f"card_{name}")
 
 
+def need_upload(tab_name):
+    with card(f"empty_{tab_name}"):
+        st.info("Upload a screenshot in the Capture tab first.")
+
+
 # ---------- CONCEPT MAP ----------
 def build_dot(topic, concepts, links):
     esc = lambda s: str(s).replace('"', "'").replace("\\", "")
@@ -147,14 +152,10 @@ with tab2:
             if st.session_state.file_key == key:
                 st.success("Analysis complete. Open the other tabs.")
 
-def need_upload():
-    with card("empty"):
-        st.info("Upload a screenshot in the Capture tab first.")
-
 with tab3:
     res = st.session_state.analysis_result
     if res is None:
-        need_upload()
+        need_upload("graph")
     else:
         with card("notes"):
             st.header("Study notes")
@@ -187,7 +188,7 @@ with tab3:
 with tab4:
     res = st.session_state.analysis_result
     if res is None:
-        need_upload()
+        need_upload("quiz")
     else:
         topic = res.get("topic", "the topic")
         with card("quiz"):
@@ -204,7 +205,7 @@ with tab4:
 with tab5:
     res = st.session_state.analysis_result
     if res is None:
-        need_upload()
+        need_upload("chat")
     else:
         context = res.get("raw_text") or res.get("summary", "")
         with card("chat"):
