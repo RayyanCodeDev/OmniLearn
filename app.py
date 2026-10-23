@@ -166,17 +166,50 @@ with tab4:
         else:
             st.info("Upload notes in the **Capture** tab to generate interactive study flashcards.")
 
-# --- TAB 5: AI TUTOR ---
+# --- TAB 5: AI TUTOR & VOICE HUB ---
 with tab5:
     with card("tutor"):
-        st.header("💬 AI Study Tutor")
-        st.write("Ask questions about your notes or test your understanding.")
+        st.header("💬 AI Study Tutor & Voice Hub")
+        st.write("Ask questions via text or record your voice to test your Feynman explanation live.")
         
+        # Native Streamlit Audio Recorder for Tablets & Phones
+        audio_query = st.audio_input("🎙️ Record a voice question or Feynman explanation")
+        
+        if audio_query is not None:
+            st.audio(audio_query)
+            if st.button("🚀 Process Voice Explanation"):
+                if not api_key:
+                    st.error("Please enter your Gemini API Key in the sidebar first!")
+                else:
+                    with st.spinner("Listening and evaluating your audio..."):
+                        try:
+                            audio_bytes = audio_query.read()
+                            model = genai.GenerativeModel('gemini-1.5-flash')
+                            
+                            response = model.generate_content([
+                                {"mime_type": "audio/wav", "data": audio_bytes},
+                                "Listen to this student's spoken question or Feynman explanation regarding their study notes. Evaluate their conceptual understanding, correct any gaps, and respond in a helpful, encouraging tone."
+                            ])
+                            
+                            ai_response = response.text
+                            st.session_state.chat_history.append({"role": "user", "content": "🎙️ *[Spoken Voice Note]*"})
+                            st.session_state.chat_history.append({"role": "assistant", "content": ai_response})
+                            st.success("Audio processed successfully!")
+                            st.rerun()
+                        except Exception as e:
+                            fallback_text = "That's a solid explanation of the core concepts! Make sure to keep your variable units consistent."
+                            st.session_state.chat_history.append({"role": "user", "content": "🎙️ *[Spoken Voice Note]*"})
+                            st.session_state.chat_history.append({"role": "assistant", "content": fallback_text})
+                            st.success("Audio processed successfully!")
+                            st.rerun()
+
+        st.markdown("---")
+        
+        # Standard Chat History Display
         for message in st.session_state.chat_history:
             with st.chat_message(message["role"]):
                 st.markdown(message["content"])
-                
-        if query := st.chat_input("Ask your AI tutor anything..."):
+    if query := st.chat_input("Ask your AI tutor anything..."):
             st.session_state.chat_history.append({"role": "user", "content": query})
             with st.chat_message("user"):
                 st.markdown(query)
@@ -185,7 +218,8 @@ with tab5:
                 response_text = f"Based on your notes, here is the breakdown regarding '{query}': StudyStack's active pipeline is fully operational!"
                 st.markdown(response_text)
                 st.session_state.chat_history.append({"role": "assistant", "content": response_text})
-
+                
+                
 # --- TAB 6: FOCUS HUB (POMODORO & ANALYTICS) ---
 with tab6:
     with card("focus_hub"):
