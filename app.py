@@ -1,228 +1,218 @@
+import textwrap
 import streamlit as st
-import os
 from backend.ai_pipeline import analyze_image, grade_answer, chat_with_notes
-from pyvis.network import Network
-import streamlit.components.v1 as components
 
 st.set_page_config(page_title="StudyStack", page_icon="📚", layout="wide")
 
 if "analysis_result" not in st.session_state:
     st.session_state.analysis_result = None
+if "file_key" not in st.session_state:
+    st.session_state.file_key = None
 
-# --- THEME TOGGLE ---
-col1, col2 = st.columns([8, 1])
-with col2:
-    theme_choice = st.toggle("Dark Mode", value=True)
+# ---------- THEME ----------
+_, toggle_col = st.columns([8, 1])
+with toggle_col:
+    dark = st.toggle("Dark mode", value=True)
 
-if theme_choice:
-    bg_color = "linear-gradient(135deg, #0f2027, #203a43, #2c5364)"
-    text_color = "#ffffff"
-    glass_bg = "rgba(255, 255, 255, 0.05)"
-    glass_border = "1px solid rgba(255, 255, 255, 0.15)"
-    glass_shadow = "0 8px 32px 0 rgba(0, 0, 0, 0.37)"
-    tab_bg = "rgba(255, 255, 255, 0.1)"
-    graph_bg = "#0e1117"
-    graph_font = "#ffffff"
-else:
-    bg_color = "linear-gradient(135deg, #e0eafc, #cfdef3)"
-    text_color = "#1a1a1a"
-    glass_bg = "rgba(255, 255, 255, 0.6)"
-    glass_border = "1px solid rgba(255, 255, 255, 0.8)"
-    glass_shadow = "0 8px 32px 0 rgba(31, 38, 135, 0.15)"
-    tab_bg = "rgba(255, 255, 255, 0.8)"
-    graph_bg = "#ffffff"
-    graph_font = "#000000"
+THEMES = {
+    True: dict(
+        TEXT="#f2f5ff", MUTED="#aab4d4", GLASS="rgba(255,255,255,0.07)", GLASS2="rgba(255,255,255,0.10)",
+        BORDER="rgba(255,255,255,0.20)", SHADOW="0 10px 40px rgba(0,0,0,0.45)", GLOW="rgba(124,140,255,0.35)",
+        BASE="#080b1a", O1="rgba(124,92,255,0.55)", O2="rgba(0,200,255,0.40)", O3="rgba(255,90,140,0.40)",
+    ),
+    False: dict(
+        TEXT="#14182b", MUTED="#4a5273", GLASS="rgba(255,255,255,0.55)", GLASS2="rgba(255,255,255,0.75)",
+        BORDER="rgba(255,255,255,0.95)", SHADOW="0 10px 40px rgba(70,80,160,0.20)", GLOW="rgba(124,140,255,0.45)",
+        BASE="#e9eeff", O1="rgba(150,120,255,0.55)", O2="rgba(80,200,255,0.50)", O3="rgba(255,150,180,0.50)",
+    ),
+}
 
-# --- TRUE GLASSMORPHISM CSS ---
-glass_css = f"""
+CSS = """
 <style>
-/* Hide Streamlit Branding */
-#MainMenu {{visibility: hidden;}} header {{visibility: hidden;}} [data-testid="stToolbar"] {{visibility: hidden;}}
-footer {{visibility: hidden;}}
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap');
+:root{--text:__TEXT__;--muted:__MUTED__;--glass:__GLASS__;--glass2:__GLASS2__;--border:__BORDER__;--shadow:__SHADOW__;--glow:__GLOW__;}
+#MainMenu, footer, [data-testid="stToolbar"], [data-testid="stDecoration"]{visibility:hidden;}
+header[data-testid="stHeader"]{background:transparent;}
 
-/* The Background */
-.stApp {{
-    background: {bg_color};
-    background-attachment: fixed;
-}}
+/* Backdrop: colored light orbs give the glass something to blur */
+.stApp{
+  background:
+    radial-gradient(circle at 12% 18%, __O1__ 0, transparent 38%),
+    radial-gradient(circle at 88% 8%,  __O2__ 0, transparent 36%),
+    radial-gradient(circle at 70% 92%, __O3__ 0, transparent 40%),
+    __BASE__;
+  background-attachment:fixed;
+  font-family:'Plus Jakarta Sans',sans-serif;
+}
+.stApp h1,.stApp h2,.stApp h3,.stApp h4,.stApp p,.stApp li,.stApp label,.stApp summary,
+.stApp [data-testid="stMarkdownContainer"],.stApp [data-testid="stCaptionContainer"]{color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;}
+.stApp h1{font-weight:800;letter-spacing:-0.02em;}
 
-/* Glassmorphism on the Main Content Container */
-[data-testid="stAppViewContainer"] > .main .block-container {{
-    background: {glass_bg};
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: {glass_border};
-    border-radius: 20px;
-    box-shadow: {glass_shadow};
-    padding: 2rem;
-    margin-top: 1rem;
-}}
+/* Frosted glass cards (containers created with key="card_*") */
+[class*="st-key-card"]{
+  background:linear-gradient(145deg,var(--glass2),var(--glass));
+  backdrop-filter:blur(22px) saturate(160%);-webkit-backdrop-filter:blur(22px) saturate(160%);
+  border:1px solid var(--border)!important;border-radius:24px!important;
+  box-shadow:var(--shadow),0 0 0 1px var(--glow),inset 0 1px 0 rgba(255,255,255,0.35);
+  padding:1.4rem 1.6rem!important;margin-bottom:1.1rem;
+}
 
-/* Glassy Tabs */
-.stTabs [data-baseweb="tab-list"] {{
-    gap: 10px;
-    background: transparent;
-}}
-.stTabs [data-baseweb="tab"] {{
-    background: {tab_bg};
-    backdrop-filter: blur(10px);
-    border: {glass_border};
-    border-radius: 12px;
-    padding: 10px 20px;
-    box-shadow: {glass_shadow};
-    color: {text_color};
-}}
-.stTabs [aria-selected="true"] {{
-    background: rgba(255, 255, 255, 0.25) !important;
-    border-bottom: 2px solid #FF6B6B !important;
-}}
+/* Pill tabs */
+.stTabs [data-baseweb="tab-list"]{gap:8px;padding:6px;background:var(--glass);border:1px solid var(--border);
+  border-radius:999px;backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);box-shadow:var(--shadow);width:fit-content;max-width:100%;overflow-x:auto;}
+.stTabs [data-baseweb="tab"]{background:transparent;border-radius:999px;padding:8px 18px;height:auto;}
+.stTabs [data-baseweb="tab"] p{color:var(--muted);font-weight:600;}
+.stTabs [aria-selected="true"]{background:linear-gradient(135deg,#7c5cff,#00c8ff)!important;box-shadow:0 0 22px var(--glow);}
+.stTabs [aria-selected="true"] p{color:#fff!important;}
+.stTabs [data-baseweb="tab-highlight"],.stTabs [data-baseweb="tab-border"]{display:none;}
 
-/* Glassy Expanders (Flashcards & Notes) */
-.streamlit-expanderHeader {{
-    background: {tab_bg} !important;
-    backdrop-filter: blur(10px);
-    border-radius: 10px;
-    border: {glass_border} !important;
-}}
+/* Expanders, inputs, alerts, uploader */
+[data-testid="stExpander"]{background:var(--glass);border:1px solid var(--border)!important;border-radius:16px!important;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);}
+[data-testid="stExpander"] summary{font-weight:600;}
+.stTextArea textarea,.stTextInput input{background:var(--glass2)!important;color:var(--text)!important;border:1px solid var(--border)!important;border-radius:14px!important;}
+[data-testid="stFileUploaderDropzone"]{background:var(--glass2);border:1.5px dashed var(--border);border-radius:18px;}
+[data-testid="stFileUploaderDropzone"] *{color:var(--text)!important;}
+[data-testid="stAlert"]{background:var(--glass2);border:1px solid var(--border);border-radius:16px;backdrop-filter:blur(14px);}
+.stButton>button{background:linear-gradient(135deg,#7c5cff,#00c8ff);color:#fff;border:0;border-radius:999px;padding:.55rem 1.6rem;font-weight:700;box-shadow:0 0 22px var(--glow);}
+.stButton>button:hover{filter:brightness(1.12);color:#fff;}
 
-/* Text Colors */
-h1, h2, h3, h4, p, span, div {{ color: {text_color} !important; }}
+/* Center the concept map */
+[data-testid="stGraphVizChart"]{display:flex;justify-content:center;}
+[data-testid="stGraphVizChart"] svg{margin:0 auto;max-width:100%;height:auto;}
 </style>
 """
-st.markdown(glass_css, unsafe_allow_html=True)
+css = CSS
+for k, v in THEMES[dark].items():
+    css = css.replace(f"__{k}__", v)
+st.markdown(css, unsafe_allow_html=True)
 
+
+def card(name):
+    return st.container(border=True, key=f"card_{name}")
+
+
+# ---------- CONCEPT MAP ----------
+def build_dot(topic, concepts, links):
+    esc = lambda s: str(s).replace('"', "'").replace("\\", "")
+    wrap = lambda s, w=16: "\\n".join(textwrap.wrap(esc(s), w)) or " "
+
+    lines = [
+        "graph G {",
+        '  graph [bgcolor="transparent", overlap=false, splines=true, ranksep=1.6, root="topic", pad=0.3];',
+        '  node  [shape=ellipse, style=filled, penwidth=0, fontname="Helvetica-Bold", fontsize=13, fontcolor="#0b1020", margin="0.18,0.10"];',
+        '  edge  [color="#8da2c0", penwidth=1.3];',
+        f'  topic [label="{wrap(topic, 18)}", fillcolor="#ff8a8a", fontsize=17, margin="0.3,0.2"];',
+    ]
+    ids = {}
+    for i, c in enumerate(concepts):
+        ids[str(c).strip().lower()] = f"c{i}"
+        lines.append(f'  c{i} [label="{wrap(c)}", fillcolor="#7ee8dc"];')
+        lines.append(f"  topic -- c{i};")
+    for link in links:
+        a = ids.get(str(link.get("from", "")).strip().lower())
+        b = ids.get(str(link.get("to", "")).strip().lower())
+        if a and b and a != b:
+            lines.append(f'  {a} -- {b} [style=dashed, color="#b79cff"];')
+    lines.append("}")
+    return "\n".join(lines)
+
+
+# ---------- PAGE ----------
 st.title("📚 StudyStack")
-st.subheader("Organize your study resources with AI")
+st.caption("Turn screenshots into notes, flashcards, a concept map and a tutor.")
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "🏠 Home", "📸 Capture Feed", "📝 Knowledge Graph", "⚙️ Smart Quiz", "💬 AI Tutor"
-])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏠 Home", "📸 Capture", "🕸️ Knowledge Graph", "🧠 Smart Quiz", "💬 AI Tutor"])
 
 with tab1:
-    st.header("Welcome to StudyStack")
-    st.write("Upload a screenshot to instantly generate notes, flashcards, quizzes, and chat with your notes.")
+    with card("home"):
+        st.header("Welcome to StudyStack")
+        st.write("Upload a screenshot of a lecture slide, syllabus or chat. StudyStack extracts the text, writes notes, "
+                 "makes flashcards, draws a concept map, grades your explanations and lets you chat with the material.")
 
 with tab2:
-    st.header("📸 Capture Feed")
-    uploaded_file = st.file_uploader("Upload a screenshot (PNG, JPG)", type=["png", "jpg", "jpeg"])
+    with card("upload"):
+        st.header("📸 Capture")
+        uploaded = st.file_uploader("Upload a screenshot (PNG, JPG)", type=["png", "jpg", "jpeg"])
+        if uploaded is not None:
+            st.image(uploaded, caption="Uploaded screenshot", width=400)
+            key = (uploaded.name, uploaded.size)
+            if st.session_state.file_key != key:  # only call Gemini once per new file
+                with st.spinner("Extracting knowledge and generating study materials..."):
+                    result = analyze_image(uploaded)
+                if "error" in result:
+                    st.error(f"Analysis failed: {result['error']}")
+                else:
+                    st.session_state.analysis_result = result
+                    st.session_state.file_key = key
+            if st.session_state.file_key == key:
+                st.success("Analysis complete. Open the other tabs.")
 
-    if uploaded_file is not None:
-        temp_path = "data/test_screenshots/temp_upload.png"
-        os.makedirs("data/test_screenshots", exist_ok=True)
-        with open(temp_path, "wb") as f:
-            f.write(uploaded_file.getbuffer())
-            
-        st.image(uploaded_file, caption="Uploaded Screenshot", width=400)
-        
-        with st.spinner("🧠 Extracting knowledge and generating study materials..."):
-            result = analyze_image(temp_path)
-            
-        if "error" in result:
-            st.error(f"Error: {result['error']}")
-        else:
-            st.session_state.analysis_result = result
-            st.success("Analysis Complete! Check the other tabs.")
+def need_upload():
+    with card("empty"):
+        st.info("Upload a screenshot in the Capture tab first.")
 
 with tab3:
-    st.header("📝 Knowledge Graph & Notes")
-    if st.session_state.analysis_result is None:
-        st.warning("Please upload a screenshot in Tab 2 first.")
+    res = st.session_state.analysis_result
+    if res is None:
+        need_upload()
     else:
-        res = st.session_state.analysis_result
-        st.success(f"**Subject:** {res.get('subject')} | **Topic:** {res.get('topic')}")
-        
-        notes = res.get('detailed_notes', 'No notes generated.')
-        if isinstance(notes, dict):
-            notes = "\n".join([f"- {v}" for k, v in notes.items()])
-        
-        with st.expander("📖 View Detailed Study Notes", expanded=True):
-            st.markdown(notes)
-            
-        st.write("### 🕸️ Concept Map")
-        topic = res.get('topic', 'Main Topic')
-        concepts = res.get("key_concepts", [])
-        
-        # --- PYVIS GRAPH FIX (Centered & Readable) ---
-        net = Network(height="500px", width="100%", bgcolor=graph_bg, font_color=graph_font, directed=True)
-        
-        # Add main topic node
-        net.add_node(topic, label=topic, color="#FF6B6B", size=35, font={"size": 20, "color": graph_font, "face": "arial", "bold": True})
-        
-        # Add concept nodes
-        for i, concept in enumerate(concepts):
-            concept_id = f"c_{i}"
-            net.add_node(concept_id, label=concept, color="#4ECDC4", size=25, font={"size": 16, "color": graph_font, "face": "arial"})
-            net.add_edge(topic, concept_id)
-        
-        # Strict physics settings to keep it perfectly in the middle
-        net.set_options("""
-        var options = {
-          "physics": {
-            "forceAtlas2Based": {
-              "gravitationalConstant": -100,
-              "centralGravity": 0.01,
-              "springLength": 100,
-              "springConstant": 0.08
-            },
-            "maxVelocity": 50,
-            "solver": "forceAtlas2Based",
-            "timestep": 0.35,
-            "stabilization": {"iterations": 150}
-          }
-        }
-        """)
-        
-        # Save and render
-        try:
-            path = "temp_graph.html"
-            net.save_graph(path)
-            with open(path, 'r', encoding='utf-8') as f:
-                html_data = f.read()
-            components.html(html_data, height=520)
-        except Exception as e:
-            st.error(f"Could not generate graph: {e}")
-        
-        st.write("### 🗂️ Auto-Generated Flashcards")
-        cards = res.get("flashcards", [])
-        for card in cards:
-            with st.expander(f"❓ {card.get('front')}"):
-                st.write(f"**Answer:** {card.get('back')}")
+        with card("notes"):
+            st.header("Study notes")
+            st.write(f"**Subject:** {res.get('subject')}  |  **Topic:** {res.get('topic')}")
+            notes = res.get("detailed_notes", "No notes generated.")
+            if isinstance(notes, dict):
+                notes = "\n".join(f"- {v}" for v in notes.values())
+            with st.expander("📖 Detailed notes", expanded=True):
+                st.markdown(notes)
+
+        with card("graph"):
+            st.header("Concept map")
+            concepts = [c for c in res.get("key_concepts", []) if str(c).strip()]
+            if concepts:
+                dot = build_dot(res.get("topic", "Topic"), concepts, res.get("relationships", []))
+                try:
+                    st.graphviz_chart(dot, engine="twopi", use_container_width=True)
+                except TypeError:  # older Streamlit without the engine argument
+                    st.graphviz_chart(dot, use_container_width=True)
+                st.caption("Solid lines connect the topic to its concepts. Dashed lines show how concepts relate.")
+            else:
+                st.info("No key concepts were found in this screenshot.")
+
+        with card("flash"):
+            st.header("Flashcards")
+            for c in res.get("flashcards", []):
+                with st.expander(f"❓ {c.get('front')}"):
+                    st.write(f"**Answer:** {c.get('back')}")
 
 with tab4:
-    st.header("⚙️ Feynman Technique Quiz")
-    if st.session_state.analysis_result is None:
-        st.warning("Please upload a screenshot in Tab 2 first.")
+    res = st.session_state.analysis_result
+    if res is None:
+        need_upload()
     else:
-        res = st.session_state.analysis_result
-        topic = res.get('topic', 'the topic')
-        st.write(f"Explain **{topic}** in your own words. The AI will grade your understanding.")
-        
-        user_answer = st.text_area("Your Explanation:")
-        if st.button("Grade My Answer"):
-            if user_answer.strip():
-                with st.spinner("Grading..."):
-                    feedback = grade_answer(topic, user_answer)
-                    st.success("Feedback:")
-                    st.write(feedback)
-            else:
-                st.warning("Please type an answer first.")
+        topic = res.get("topic", "the topic")
+        with card("quiz"):
+            st.header("Feynman quiz")
+            st.write(f"Explain **{topic}** in your own words and get graded.")
+            answer = st.text_area("Your explanation")
+            if st.button("Grade my answer"):
+                if answer.strip():
+                    with st.spinner("Grading..."):
+                        st.write(grade_answer(topic, answer))
+                else:
+                    st.warning("Type an explanation first.")
 
 with tab5:
-    st.header("💬 AI Tutor (Chat with your Notes)")
-    if st.session_state.analysis_result is None:
-        st.warning("Please upload a screenshot in Tab 2 first.")
+    res = st.session_state.analysis_result
+    if res is None:
+        need_upload()
     else:
-        res = st.session_state.analysis_result
-        context = res.get("raw_text", res.get("summary", ""))
-        
-        st.write("Ask a question about the material, or ask the AI to explain it further:")
-        user_question = st.text_input("Your Question:")
-        
-        if st.button("Ask AI"):
-            if user_question.strip():
-                with st.spinner("Thinking..."):
-                    answer = chat_with_notes(user_question, context)
-                    st.success("Answer:")
-                    st.write(answer)
-            else:
-                st.warning("Please type a question first.")
+        context = res.get("raw_text") or res.get("summary", "")
+        with card("chat"):
+            st.header("AI tutor")
+            q = st.text_input("Ask about the material")
+            if st.button("Ask"):
+                if q.strip():
+                    with st.spinner("Thinking..."):
+                        st.write(chat_with_notes(q, context))
+                else:
+                    st.warning("Type a question first.")
