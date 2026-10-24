@@ -4,27 +4,59 @@ import textwrap
 import streamlit as st
 from pypdf import PdfReader, PdfWriter
 from backend.ai_pipeline import analyze_image, analyze_pdf, grade_answer, chat_with_notes
+from backend.auth import EMAIL_RE, auth_configured, sign_in, sign_up, sign_out
 
 st.set_page_config(page_title="StudyStack", page_icon="📚", layout="wide")
 
 MAX_PDF_MB = 20
 MAX_PDF_PAGES = 30  # pages analyzed at once (keeps results good and free-tier usage low)
 
-if "analysis_result" not in st.session_state:
-    st.session_state.analysis_result = None
-if "file_key" not in st.session_state:
-    st.session_state.file_key = None
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
-if "user_name" not in st.session_state:
-    st.session_state.user_name = ""
-if "name_asked" not in st.session_state:
-    st.session_state.name_asked = False
+DEFAULTS = {
+    "analysis_result": None,
+    "file_key": None,
+    "chat_history": [],
+    "user_name": "",
+    "name_asked": False,
+    "auth_mode": None,   # None = not chosen yet, "user" or "guest"
+    "auth_user": None,
+    "upload_gen": 0,     # changing this resets the file uploader
+}
+for k, v in DEFAULTS.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
 
-# ---------- THEME ----------
-_, toggle_col = st.columns([8, 1])
+
+def clean_name(raw):
+    """Keep letters (any language), digits, spaces and a few name symbols; max 30 chars."""
+    return re.sub(r"[^\w\s'’.-]", "", raw or "", flags=re.UNICODE).strip()[:30]
+
+
+def reset_session():
+    """Forget everything about the current visitor (used on sign out)."""
+    gen = st.session_state.upload_gen + 1
+    for k, v in DEFAULTS.items():
+        st.session_state[k] = [] if isinstance(v, list) else v
+    st.session_state.upload_gen = gen
+
+
+# ---------- THEME + TOP BAR ----------
+_, who_col, toggle_col = st.columns([5, 3, 1])
 with toggle_col:
     dark = st.toggle("Dark mode", value=True)
+with who_col:
+    if st.session_state.auth_mode:
+        a, b = st.columns([2, 1])
+        if st.session_state.auth_mode == "user":
+            a.markdown(f"👤 **{clean_name(st.session_state.auth_user['name'])}**")
+            if b.button("Sign out"):
+                sign_out()
+                reset_session()
+                st.rerun()
+        else:
+            a.markdown("👤 **Guest**")
+            if b.button("Sign in"):
+                reset_session()
+                st.rerun()
 
 THEMES = {
     True: dict(
@@ -88,7 +120,7 @@ header[data-testid="stHeader"]{background:transparent;}
 .stButton>button,[data-testid="stFormSubmitButton"]>button{background:linear-gradient(135deg,#7c5cff,#00c8ff);color:#fff;border:0;border-radius:999px;padding:.55rem 1.6rem;font-weight:700;box-shadow:0 0 22px var(--glow);}
 .stButton>button:hover,[data-testid="stFormSubmitButton"]>button:hover{filter:brightness(1.12);color:#fff;}
 
-/* Chat form and message bubbles */
+/* Forms and chat bubbles */
 [data-testid="stForm"]{border:none!important;padding:0!important;background:transparent!important;}
 [data-testid="stChatMessage"]{background:var(--glass);border:1px solid var(--border);border-radius:18px;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);}
 
@@ -112,11 +144,81 @@ def need_upload(tab_name):
         st.info("Upload a screenshot or PDF in the Capture tab first.")
 
 
-def clean_name(raw):
-    """Keep letters (any language), digits, spaces and a few name symbols; max 30 chars."""
-    return re.sub(r"[^\w\s'’.-]", "", raw or "", flags=re.UNICODE).strip()[:30]
+# ---------- LOGIN PAGE ----------
+def start_user_session(user):
+    st.session_state.auth_mode = "user"
+    st.session_state.auth_user = user
+    st.session_state.user_name = clean_name(user["name"])
+    st.session_state.name_asked = bool(st.session_state.user_name)  # known name = tutor doesn't ask
+    st.rerun()
 
 
+def login_page():
+    _, mid, _ = st.columns([1, 2, 1])
+    with mid:
+        with card("login"):
+            st.markdown("## 📚 StudyStack")
+            st.caption("Sign in to keep your progress, or try the app as a guest.")
+
+            if not auth_configured():
+                st.warning("Accounts aren't set up yet. You can still continue as a guest.")
+            else:
+                t_in, t_up = st.tabs(["Sign in", "Create account"])
+
+                with t_in:
+                    with st.form("signin_form"):
+                        email = st.text_input("Email", key="si_email")
+                        pw = st.text_input("Password", type="password", key="si_pw")
+                        go = st.form_submit_button("Sign in")
+                    if go:
+                        email = email.strip().lower()
+                        if not EMAIL_RE.match(email) or not pw:
+                            st.error("Enter your email and password.")
+                        else:
+                            with st.spinner("Signing in..."):
+                                user, err = sign_in(email, pw)
+                            if err:
+                                st.error(err)
+                            else:
+                                start_user_session(user)
+
+                with t_up:
+                    with st.form("signup_form"):
+                        nm = st.text_input("Display name", max_chars=30, key="su_name",
+                                           help="Shown to your tutor and (later) your friends. Use a nickname if you like.")
+                        email2 = st.text_input("Email", key="su_email")
+                        pw2 = st.text_input("Password (at least 8 characters)", type="password", key="su_pw")
+                        go2 = st.form_submit_button("Create account")
+                    if go2:
+                        nm = clean_name(nm)
+                        email2 = email2.strip().lower()
+                        if not nm:
+                            st.error("Please enter a display name.")
+                        elif not EMAIL_RE.match(email2):
+                            st.error("Please enter a valid email address.")
+                        elif len(pw2) < 8:
+                            st.error("Your password must be at least 8 characters.")
+                        else:
+                            with st.spinner("Creating your account..."):
+                                user, err = sign_up(email2, pw2, nm)
+                            if err:
+                                st.error(err)
+                            else:
+                                start_user_session(user)
+
+            st.divider()
+            if st.button("Continue as guest"):
+                st.session_state.auth_mode = "guest"
+                st.rerun()
+            st.caption("Guest mode needs no email or name. Nothing is saved, and guests don't appear on leaderboards.")
+
+
+if st.session_state.auth_mode is None:
+    login_page()
+    st.stop()
+
+
+# ---------- HELPERS ----------
 def get_context(res):
     """Everything the tutor can use: summary, notes and extracted text (capped for safety)."""
     notes = res.get("detailed_notes", "")
@@ -126,7 +228,6 @@ def get_context(res):
     return "\n\n".join(p for p in parts if p.strip())[:20000]
 
 
-# ---------- PDF HELPERS ----------
 def pdf_page_count(data):
     try:
         reader = PdfReader(io.BytesIO(data))
@@ -159,7 +260,6 @@ def save_result(result, key):
         st.session_state.chat_history = []  # new material = fresh chat (name is kept)
 
 
-# ---------- CONCEPT MAP ----------
 def build_dot(topic, concepts, links):
     esc = lambda s: str(s).replace('"', "'").replace("\\", "")
     wrap = lambda s, w=16: "\\n".join(textwrap.wrap(esc(s), w)) or " "
@@ -196,11 +296,14 @@ with tab1:
         st.header("Welcome to StudyStack")
         st.write("Upload a screenshot or a PDF of a lecture, syllabus or chat. StudyStack extracts the text, writes notes, "
                  "makes flashcards, draws a concept map, grades your explanations and lets you chat with the material.")
+        if st.session_state.auth_mode == "guest":
+            st.info("You're in guest mode, so nothing is saved when you close the page. Use **Sign in** (top right) to create an account.")
 
 with tab2:
     with card("upload"):
         st.header("📸 Capture")
-        uploaded = st.file_uploader("Upload a screenshot (PNG, JPG) or a PDF", type=["png", "jpg", "jpeg", "pdf"])
+        uploaded = st.file_uploader("Upload a screenshot (PNG, JPG) or a PDF", type=["png", "jpg", "jpeg", "pdf"],
+                                    key=f"uploader_{st.session_state.upload_gen}")
 
         if uploaded is not None:
             is_pdf = uploaded.name.lower().endswith(".pdf")
@@ -310,7 +413,7 @@ with tab5:
         with card("chat"):
             st.header("AI tutor")
 
-            # Step 1: ask the student's name (once per visit)
+            # Step 1: ask the student's name (skipped for signed-in users, who already have one)
             if not st.session_state.name_asked:
                 with st.chat_message("assistant"):
                     st.markdown("Hi! I'm your StudyStack tutor 👋 What should I call you?")
