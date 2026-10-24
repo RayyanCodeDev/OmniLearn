@@ -69,13 +69,22 @@ Rules for "relationships": use ONLY names copied exactly from key_concepts, and 
 showing how the concepts relate to each other (not to the topic).
 """
 
+# Same format, adjusted for a multi-page document
+PDF_PROMPT = (
+    PROMPT.replace("screenshot", "document")
+    .replace('"raw_text": "The exact text extracted from the image"',
+             '"raw_text": "The most important extracted text, condensed to at most about 1500 words"')
+    + "\nThis is a multi-page document: cover all of its main sections in the notes, "
+      "and write 8 to 12 flashcards.\n"
+)
 
-def analyze_image(image_file):
+
+def _run(prompt, part):
+    """Send a prompt plus one file (image or PDF part) to Gemini and parse the JSON reply."""
     try:
-        img = Image.open(image_file)
         response = get_client().models.generate_content(
             model=MODEL,
-            contents=[PROMPT, img],
+            contents=[prompt, part],
             config=types.GenerateContentConfig(response_mime_type="application/json"),
         )
         text = response.text.strip()
@@ -87,6 +96,19 @@ def analyze_image(image_file):
         return json.loads(text)
     except Exception as e:
         return {"error": friendly_error(e)}
+
+
+def analyze_image(image_file):
+    try:
+        img = Image.open(image_file)
+    except Exception as e:
+        return {"error": friendly_error(e)}
+    return _run(PROMPT, img)
+
+
+def analyze_pdf(pdf_bytes):
+    part = types.Part.from_bytes(data=pdf_bytes, mime_type="application/pdf")
+    return _run(PDF_PROMPT, part)
 
 
 def _ask(prompt):
@@ -121,7 +143,7 @@ def chat_with_notes(question, context_text, history=None, student_name=""):
 
     return _ask(f"""You are StudyStack, an expert AI tutor.
 {name_rule}
-The student's extracted study material is below as "Context".
+The student's study material is below as "Context".
 
 Context:
 {context_text}
