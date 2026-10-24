@@ -1,2 +1,2 @@
-# OmniLearn
+# StudyStack
 AI Study Engine
