@@ -3,4 +3,5 @@ google-genai
 pillow
 python-dotenv
 pypdf
+supabase
 pyarrow<25
