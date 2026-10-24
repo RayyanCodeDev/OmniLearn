@@ -1,7 +1,6 @@
 import random
 import textwrap
 import streamlit as st
-import google.generativeai as genai
 from backend.ai_pipeline import analyze_image, grade_answer, chat_with_notes
 
 st.set_page_config(page_title="StudyStack", page_icon="📚", layout="wide")
