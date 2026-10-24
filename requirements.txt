@@ -2,4 +2,5 @@ streamlit>=1.40
 google-genai
 pillow
 python-dotenv
-pydantic
+pypdf
+pyarrow<25
