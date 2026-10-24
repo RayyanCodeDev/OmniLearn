@@ -29,6 +29,16 @@ def _sb():
     return st.session_state.sb_client
 
 
+def db():
+    """The signed-in visitor's client, with a fresh login token (used for the library)."""
+    sb = _sb()
+    try:
+        sb.auth.get_session()  # refreshes the token if it has expired
+    except Exception:
+        pass
+    return sb
+
+
 def _friendly(e):
     msg = str(getattr(e, "message", None) or e).lower()
     if "invalid login" in msg:
