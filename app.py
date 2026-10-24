@@ -1,9 +1,14 @@
+import io
 import re
 import textwrap
 import streamlit as st
-from backend.ai_pipeline import analyze_image, grade_answer, chat_with_notes
+from pypdf import PdfReader, PdfWriter
+from backend.ai_pipeline import analyze_image, analyze_pdf, grade_answer, chat_with_notes
 
 st.set_page_config(page_title="StudyStack", page_icon="📚", layout="wide")
+
+MAX_PDF_MB = 20
+MAX_PDF_PAGES = 30  # pages analyzed at once (keeps results good and free-tier usage low)
 
 if "analysis_result" not in st.session_state:
     st.session_state.analysis_result = None
@@ -76,7 +81,7 @@ header[data-testid="stHeader"]{background:transparent;}
 /* Expanders, inputs, alerts, uploader */
 [data-testid="stExpander"]{background:var(--glass);border:1px solid var(--border)!important;border-radius:16px!important;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);}
 [data-testid="stExpander"] summary{font-weight:600;}
-.stTextArea textarea,.stTextInput input{background:var(--glass2)!important;color:var(--text)!important;border:1px solid var(--border)!important;border-radius:14px!important;}
+.stTextArea textarea,.stTextInput input,.stNumberInput input{background:var(--glass2)!important;color:var(--text)!important;border:1px solid var(--border)!important;border-radius:14px!important;}
 [data-testid="stFileUploaderDropzone"]{background:var(--glass2);border:1.5px dashed var(--border);border-radius:18px;}
 [data-testid="stFileUploaderDropzone"] *{color:var(--text)!important;}
 [data-testid="stAlert"]{background:var(--glass2);border:1px solid var(--border);border-radius:16px;backdrop-filter:blur(14px);}
@@ -104,12 +109,54 @@ def card(name):
 
 def need_upload(tab_name):
     with card(f"empty_{tab_name}"):
-        st.info("Upload a screenshot in the Capture tab first.")
+        st.info("Upload a screenshot or PDF in the Capture tab first.")
 
 
 def clean_name(raw):
     """Keep letters (any language), digits, spaces and a few name symbols; max 30 chars."""
     return re.sub(r"[^\w\s'’.-]", "", raw or "", flags=re.UNICODE).strip()[:30]
+
+
+def get_context(res):
+    """Everything the tutor can use: summary, notes and extracted text (capped for safety)."""
+    notes = res.get("detailed_notes", "")
+    if isinstance(notes, dict):
+        notes = "\n".join(str(v) for v in notes.values())
+    parts = [str(res.get("summary", "")), str(notes), str(res.get("raw_text", ""))]
+    return "\n\n".join(p for p in parts if p.strip())[:20000]
+
+
+# ---------- PDF HELPERS ----------
+def pdf_page_count(data):
+    try:
+        reader = PdfReader(io.BytesIO(data))
+        if reader.is_encrypted and not reader.decrypt(""):
+            return None
+        return len(reader.pages)
+    except Exception:
+        return None
+
+
+def pdf_slice(data, start, end):
+    """Return a new PDF containing pages start..end (1-based, inclusive)."""
+    reader = PdfReader(io.BytesIO(data))
+    if reader.is_encrypted:
+        reader.decrypt("")
+    writer = PdfWriter()
+    for i in range(start - 1, end):
+        writer.add_page(reader.pages[i])
+    out = io.BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
+def save_result(result, key):
+    if "error" in result:
+        st.error(f"Analysis failed: {result['error']}")
+    else:
+        st.session_state.analysis_result = result
+        st.session_state.file_key = key
+        st.session_state.chat_history = []  # new material = fresh chat (name is kept)
 
 
 # ---------- CONCEPT MAP ----------
@@ -140,34 +187,66 @@ def build_dot(topic, concepts, links):
 
 # ---------- PAGE ----------
 st.title("📚 StudyStack")
-st.caption("Turn screenshots into notes, flashcards, a concept map and a tutor.")
+st.caption("Turn screenshots and PDFs into notes, flashcards, a concept map and a tutor.")
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏠 Home", "📸 Capture", "🕸️ Knowledge Graph", "🧠 Smart Quiz", "💬 AI Tutor"])
 
 with tab1:
     with card("home"):
         st.header("Welcome to StudyStack")
-        st.write("Upload a screenshot of a lecture slide, syllabus or chat. StudyStack extracts the text, writes notes, "
+        st.write("Upload a screenshot or a PDF of a lecture, syllabus or chat. StudyStack extracts the text, writes notes, "
                  "makes flashcards, draws a concept map, grades your explanations and lets you chat with the material.")
 
 with tab2:
     with card("upload"):
         st.header("📸 Capture")
-        uploaded = st.file_uploader("Upload a screenshot (PNG, JPG)", type=["png", "jpg", "jpeg"])
+        uploaded = st.file_uploader("Upload a screenshot (PNG, JPG) or a PDF", type=["png", "jpg", "jpeg", "pdf"])
+
         if uploaded is not None:
-            st.image(uploaded, caption="Uploaded screenshot", width=400)
-            key = (uploaded.name, uploaded.size)
-            if st.session_state.file_key != key:  # only call Gemini once per new file
-                with st.spinner("Extracting knowledge and generating study materials..."):
-                    result = analyze_image(uploaded)
-                if "error" in result:
-                    st.error(f"Analysis failed: {result['error']}")
+            is_pdf = uploaded.name.lower().endswith(".pdf")
+
+            if not is_pdf:
+                # Screenshots are analyzed automatically, once per new file
+                st.image(uploaded, caption="Uploaded screenshot", width=400)
+                key = ("img", uploaded.name, uploaded.size)
+                if st.session_state.file_key != key:
+                    with st.spinner("Extracting knowledge and generating study materials..."):
+                        result = analyze_image(uploaded)
+                    save_result(result, key)
+                if st.session_state.file_key == key:
+                    st.success("Analysis complete. Open the other tabs.")
+
+            else:
+                data = uploaded.getvalue()
+                if uploaded.size > MAX_PDF_MB * 1024 * 1024:
+                    st.error(f"This PDF is larger than {MAX_PDF_MB} MB. Try a smaller file or split it first.")
                 else:
-                    st.session_state.analysis_result = result
-                    st.session_state.file_key = key
-                    st.session_state.chat_history = []  # new material = fresh chat (name is kept)
-            if st.session_state.file_key == key:
-                st.success("Analysis complete. Open the other tabs.")
+                    total = pdf_page_count(data)
+                    if not total:
+                        st.error("Couldn't read this PDF. It may be password-protected or damaged.")
+                    else:
+                        st.write(f"📄 **{uploaded.name}** · {total} page{'s' if total != 1 else ''}")
+                        fid = f"{uploaded.name}_{uploaded.size}"
+                        c1, c2, _ = st.columns([1, 1, 3])
+                        start = int(c1.number_input("From page", min_value=1, max_value=total, value=1, step=1, key=f"from_{fid}"))
+                        end = int(c2.number_input("To page", min_value=1, max_value=total,
+                                                  value=min(total, MAX_PDF_PAGES), step=1, key=f"to_{fid}"))
+                        count = end - start + 1
+                        key = ("pdf", uploaded.name, uploaded.size, start, end)
+
+                        if end < start:
+                            st.error("'To page' must be the same as or after 'From page'.")
+                        elif count > MAX_PDF_PAGES:
+                            st.warning(f"Please pick at most {MAX_PDF_PAGES} pages at a time (you picked {count}). "
+                                       "You can analyze the next chapter afterwards.")
+                        else:
+                            st.caption(f"{count} page{'s' if count != 1 else ''} selected.")
+                            if st.button("Analyze pages"):
+                                with st.spinner("Reading your PDF and generating study materials..."):
+                                    result = analyze_pdf(pdf_slice(data, start, end))
+                                save_result(result, key)
+                            if st.session_state.file_key == key:
+                                st.success("Analysis complete. Open the other tabs.")
 
 with tab3:
     res = st.session_state.analysis_result
@@ -194,7 +273,7 @@ with tab3:
                     st.graphviz_chart(dot, use_container_width=True)
                 st.caption("Solid lines connect the topic to its concepts. Dashed lines show how concepts relate.")
             else:
-                st.info("No key concepts were found in this screenshot.")
+                st.info("No key concepts were found in this material.")
 
         with card("flash"):
             st.header("Flashcards")
@@ -224,7 +303,7 @@ with tab5:
     if res is None:
         need_upload("chat")
     else:
-        context = res.get("raw_text") or res.get("summary", "")
+        context = get_context(res)
         name = st.session_state.user_name
         topic = res.get("topic", "your notes")
 
@@ -263,7 +342,6 @@ with tab5:
                     with st.chat_message(m["role"]):
                         st.markdown(m["content"])
 
-                # clear_on_submit empties the box after every question
                 with st.form("chat_form", clear_on_submit=True):
                     q = st.text_input("Ask about the material", placeholder="Type your question and press Enter")
                     sent = st.form_submit_button("Ask")
