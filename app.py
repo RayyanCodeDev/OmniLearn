@@ -1,15 +1,20 @@
+import copy
 import io
+import json
 import re
 import textwrap
 import streamlit as st
 from pypdf import PdfReader, PdfWriter
 from backend.ai_pipeline import analyze_image, analyze_pdf, grade_answer, chat_with_notes
 from backend.auth import EMAIL_RE, auth_configured, sign_in, sign_up, sign_out
+from backend.library import (MAX_SETS, clean_chat, clean_result, delete_set, list_sets,
+                             load_set, save_set, update_chat)
 
 st.set_page_config(page_title="StudyStack", page_icon="📚", layout="wide")
 
 MAX_PDF_MB = 20
 MAX_PDF_PAGES = 30  # pages analyzed at once (keeps results good and free-tier usage low)
+MAX_RESTORE_MB = 2
 
 DEFAULTS = {
     "analysis_result": None,
@@ -17,13 +22,17 @@ DEFAULTS = {
     "chat_history": [],
     "user_name": "",
     "name_asked": False,
-    "auth_mode": None,   # None = not chosen yet, "user" or "guest"
+    "auth_mode": None,       # None = not chosen yet, "user" or "guest"
     "auth_user": None,
-    "upload_gen": 0,     # changing this resets the file uploader
+    "upload_gen": 0,         # changing this resets the file uploaders
+    "current_set_id": None,  # library row the current work is saved in (signed-in users only)
+    "lib_cache": None,       # cached library list, None = reload from the database
+    "save_note": "",
+    "confirm_delete": None,
 }
 for k, v in DEFAULTS.items():
     if k not in st.session_state:
-        st.session_state[k] = v
+        st.session_state[k] = copy.deepcopy(v)
 
 
 def clean_name(raw):
@@ -35,7 +44,7 @@ def reset_session():
     """Forget everything about the current visitor (used on sign out)."""
     gen = st.session_state.upload_gen + 1
     for k, v in DEFAULTS.items():
-        st.session_state[k] = [] if isinstance(v, list) else v
+        st.session_state[k] = copy.deepcopy(v)
     st.session_state.upload_gen = gen
 
 
@@ -117,8 +126,8 @@ header[data-testid="stHeader"]{background:transparent;}
 [data-testid="stFileUploaderDropzone"]{background:var(--glass2);border:1.5px dashed var(--border);border-radius:18px;}
 [data-testid="stFileUploaderDropzone"] *{color:var(--text)!important;}
 [data-testid="stAlert"]{background:var(--glass2);border:1px solid var(--border);border-radius:16px;backdrop-filter:blur(14px);}
-.stButton>button,[data-testid="stFormSubmitButton"]>button{background:linear-gradient(135deg,#7c5cff,#00c8ff);color:#fff;border:0;border-radius:999px;padding:.55rem 1.6rem;font-weight:700;box-shadow:0 0 22px var(--glow);}
-.stButton>button:hover,[data-testid="stFormSubmitButton"]>button:hover{filter:brightness(1.12);color:#fff;}
+.stButton>button,.stDownloadButton>button,[data-testid="stFormSubmitButton"]>button{background:linear-gradient(135deg,#7c5cff,#00c8ff);color:#fff;border:0;border-radius:999px;padding:.55rem 1.6rem;font-weight:700;box-shadow:0 0 22px var(--glow);}
+.stButton>button:hover,.stDownloadButton>button:hover,[data-testid="stFormSubmitButton"]>button:hover{filter:brightness(1.12);color:#fff;}
 
 /* Forms and chat bubbles */
 [data-testid="stForm"]{border:none!important;padding:0!important;background:transparent!important;}
@@ -141,7 +150,7 @@ def card(name):
 
 def need_upload(tab_name):
     with card(f"empty_{tab_name}"):
-        st.info("Upload a screenshot or PDF in the Capture tab first.")
+        st.info("Upload a screenshot or PDF in the Capture tab first, or open a set from My Library.")
 
 
 # ---------- LOGIN PAGE ----------
@@ -210,7 +219,7 @@ def login_page():
             if st.button("Continue as guest"):
                 st.session_state.auth_mode = "guest"
                 st.rerun()
-            st.caption("Guest mode needs no email or name. Nothing is saved, and guests don't appear on leaderboards.")
+            st.caption("Guest mode needs no email or name. Nothing is saved on our side, and guests don't appear on leaderboards.")
 
 
 if st.session_state.auth_mode is None:
@@ -221,10 +230,7 @@ if st.session_state.auth_mode is None:
 # ---------- HELPERS ----------
 def get_context(res):
     """Everything the tutor can use: summary, notes and extracted text (capped for safety)."""
-    notes = res.get("detailed_notes", "")
-    if isinstance(notes, dict):
-        notes = "\n".join(str(v) for v in notes.values())
-    parts = [str(res.get("summary", "")), str(notes), str(res.get("raw_text", ""))]
+    parts = [str(res.get("summary", "")), str(res.get("detailed_notes", "")), str(res.get("raw_text", ""))]
     return "\n\n".join(p for p in parts if p.strip())[:20000]
 
 
@@ -252,12 +258,55 @@ def pdf_slice(data, start, end):
 
 
 def save_result(result, key):
+    """Store a fresh analysis, and save it to the library when the visitor is signed in."""
     if "error" in result:
         st.error(f"Analysis failed: {result['error']}")
+        return
+    clean = clean_result(result)
+    if clean is None:
+        st.error("The AI reply didn't contain study material. Please try again.")
+        return
+    st.session_state.analysis_result = clean
+    st.session_state.file_key = key
+    st.session_state.chat_history = []  # new material = fresh chat (name is kept)
+    st.session_state.current_set_id = None
+    if st.session_state.auth_mode == "user":
+        set_id, err = save_set(clean, [])
+        if err:
+            st.session_state.save_note = "⚠️ " + err
+        else:
+            st.session_state.current_set_id = set_id
+            st.session_state.lib_cache = None
+            st.session_state.save_note = "✅ Saved to your library."
     else:
-        st.session_state.analysis_result = result
-        st.session_state.file_key = key
-        st.session_state.chat_history = []  # new material = fresh chat (name is kept)
+        st.session_state.save_note = "Guest mode: nothing is saved. Use the 📚 My Library tab to download this set."
+
+
+def show_done():
+    st.success("Analysis complete. Open the other tabs.")
+    note = st.session_state.save_note
+    if note:
+        (st.warning if note.startswith("⚠️") else st.caption)(note)
+
+
+def persist_chat():
+    sid = st.session_state.current_set_id
+    if st.session_state.auth_mode == "user" and sid:
+        update_chat(sid, st.session_state.chat_history)
+
+
+def open_saved(set_id):
+    data, err = load_set(set_id)
+    if err:
+        st.error(err)
+        return
+    st.session_state.analysis_result = data["result"]
+    st.session_state.chat_history = data["chat"]
+    st.session_state.current_set_id = set_id
+    st.session_state.file_key = ("saved", set_id)
+    st.session_state.upload_gen += 1  # clears the uploader so an old file can't overwrite this set
+    st.session_state.save_note = ""
+    st.rerun()
 
 
 def build_dot(topic, concepts, links):
@@ -289,17 +338,20 @@ def build_dot(topic, concepts, links):
 st.title("📚 StudyStack")
 st.caption("Turn screenshots and PDFs into notes, flashcards, a concept map and a tutor.")
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏠 Home", "📸 Capture", "🕸️ Knowledge Graph", "🧠 Smart Quiz", "💬 AI Tutor"])
+tab_home, tab_cap, tab_lib, tab_graph, tab_quiz, tab_chat = st.tabs(
+    ["🏠 Home", "📸 Capture", "📚 My Library", "🕸️ Knowledge Graph", "🧠 Smart Quiz", "💬 AI Tutor"]
+)
 
-with tab1:
+with tab_home:
     with card("home"):
         st.header("Welcome to StudyStack")
         st.write("Upload a screenshot or a PDF of a lecture, syllabus or chat. StudyStack extracts the text, writes notes, "
                  "makes flashcards, draws a concept map, grades your explanations and lets you chat with the material.")
         if st.session_state.auth_mode == "guest":
-            st.info("You're in guest mode, so nothing is saved when you close the page. Use **Sign in** (top right) to create an account.")
+            st.info("You're in guest mode, so nothing is saved on our side. Use **Sign in** (top right) to create an account, "
+                    "or download your sets from the My Library tab.")
 
-with tab2:
+with tab_cap:
     with card("upload"):
         st.header("📸 Capture")
         uploaded = st.file_uploader("Upload a screenshot (PNG, JPG) or a PDF", type=["png", "jpg", "jpeg", "pdf"],
@@ -317,7 +369,7 @@ with tab2:
                         result = analyze_image(uploaded)
                     save_result(result, key)
                 if st.session_state.file_key == key:
-                    st.success("Analysis complete. Open the other tabs.")
+                    show_done()
 
             else:
                 data = uploaded.getvalue()
@@ -349,9 +401,90 @@ with tab2:
                                     result = analyze_pdf(pdf_slice(data, start, end))
                                 save_result(result, key)
                             if st.session_state.file_key == key:
-                                st.success("Analysis complete. Open the other tabs.")
+                                show_done()
 
-with tab3:
+with tab_lib:
+    res = st.session_state.analysis_result
+    with card("library"):
+        st.header("📚 My Library")
+
+        if st.session_state.auth_mode == "user":
+            if st.session_state.lib_cache is None:
+                rows, err = list_sets()
+                st.session_state.lib_cache = {"rows": rows, "err": err}
+            lib = st.session_state.lib_cache
+
+            if lib["err"]:
+                st.error(lib["err"])
+                if st.button("Try again"):
+                    st.session_state.lib_cache = None
+                    st.rerun()
+            elif not lib["rows"]:
+                st.info("Nothing saved yet. Analyze a screenshot or PDF and it will appear here automatically.")
+            else:
+                st.caption(f"{len(lib['rows'])} of {MAX_SETS} sets saved. To study a set, press Open, then use the other tabs.")
+                for row in lib["rows"]:
+                    c1, c2, c3, c4 = st.columns([5, 2, 1.3, 1.3])
+                    subject = f"  \n{row['subject']}" if row.get("subject") else ""
+                    c1.markdown(f"**{row['title']}**{subject}")
+                    c2.caption(str(row["created_at"])[:10])
+                    if c3.button("Open", key=f"open_{row['id']}"):
+                        open_saved(row["id"])
+                    if c4.button("Delete", key=f"del_{row['id']}"):
+                        st.session_state.confirm_delete = row["id"]
+                        st.rerun()
+
+                    if st.session_state.confirm_delete == row["id"]:
+                        st.warning(f"Delete “{row['title']}”? This can't be undone.")
+                        y, n, _ = st.columns([1.3, 1, 4])
+                        if y.button("Yes, delete", key=f"yes_{row['id']}"):
+                            err = delete_set(row["id"])
+                            if err:
+                                st.error(err)
+                            else:
+                                if st.session_state.current_set_id == row["id"]:
+                                    st.session_state.current_set_id = None
+                                st.session_state.confirm_delete = None
+                                st.session_state.lib_cache = None
+                                st.rerun()
+                        if n.button("Cancel", key=f"no_{row['id']}"):
+                            st.session_state.confirm_delete = None
+                            st.rerun()
+        else:
+            st.write("As a guest, nothing is stored on our side. Download your study set to keep it, and upload it here later to continue.")
+
+        if res is not None:
+            st.divider()
+            st.write(f"Currently open: **{res.get('topic') or 'Untitled'}**")
+            payload = json.dumps({"app": "studystack", "version": 1, "result": res,
+                                  "chat": st.session_state.chat_history}, ensure_ascii=False)
+            st.download_button("⬇️ Download this set", payload, file_name="studystack_set.json", mime="application/json")
+
+        if st.session_state.auth_mode == "guest":
+            st.divider()
+            st.subheader("Restore a saved set")
+            f = st.file_uploader("Upload a StudyStack set (.json)", type=["json"], key=f"restore_{st.session_state.upload_gen}")
+            if f is not None:
+                if f.size > MAX_RESTORE_MB * 1024 * 1024:
+                    st.error(f"That file is too large (max {MAX_RESTORE_MB} MB).")
+                else:
+                    try:
+                        payload_in = json.loads(f.getvalue().decode("utf-8"))
+                    except Exception:
+                        payload_in = None
+                    restored = clean_result(payload_in.get("result")) if isinstance(payload_in, dict) else None
+                    if restored is None:
+                        st.error("This doesn't look like a StudyStack set.")
+                    elif st.button("Load this set"):
+                        st.session_state.analysis_result = restored
+                        st.session_state.chat_history = clean_chat(payload_in.get("chat"))
+                        st.session_state.current_set_id = None
+                        st.session_state.file_key = ("file", f.name, f.size)
+                        st.session_state.upload_gen += 1
+                        st.session_state.save_note = ""
+                        st.rerun()
+
+with tab_graph:
     res = st.session_state.analysis_result
     if res is None:
         need_upload("graph")
@@ -359,11 +492,8 @@ with tab3:
         with card("notes"):
             st.header("Study notes")
             st.write(f"**Subject:** {res.get('subject')}  |  **Topic:** {res.get('topic')}")
-            notes = res.get("detailed_notes", "No notes generated.")
-            if isinstance(notes, dict):
-                notes = "\n".join(f"- {v}" for v in notes.values())
             with st.expander("📖 Detailed notes", expanded=True):
-                st.markdown(notes)
+                st.markdown(res.get("detailed_notes") or "No notes generated.")
 
         with card("graph"):
             st.header("Concept map")
@@ -384,7 +514,7 @@ with tab3:
                 with st.expander(f"❓ {c.get('front')}"):
                     st.write(f"**Answer:** {c.get('back')}")
 
-with tab4:
+with tab_quiz:
     res = st.session_state.analysis_result
     if res is None:
         need_upload("quiz")
@@ -401,7 +531,7 @@ with tab4:
                 else:
                     st.warning("Type an explanation first.")
 
-with tab5:
+with tab_chat:
     res = st.session_state.analysis_result
     if res is None:
         need_upload("chat")
@@ -458,6 +588,7 @@ with tab5:
                         else:
                             st.session_state.chat_history.append({"role": "user", "content": q})
                             st.session_state.chat_history.append({"role": "assistant", "content": reply})
+                            persist_chat()
                             st.rerun()
                     else:
                         st.warning("Type a question first.")
@@ -465,6 +596,7 @@ with tab5:
                 b1, b2, _ = st.columns([1, 1, 4])
                 if st.session_state.chat_history and b1.button("Clear chat"):
                     st.session_state.chat_history = []
+                    persist_chat()
                     st.rerun()
                 if b2.button("Change name"):
                     st.session_state.name_asked = False
